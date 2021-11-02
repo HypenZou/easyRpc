@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Server .
+// Server definition
 type Server struct {
 	ln       net.Listener
 	chStop   chan error
@@ -20,15 +20,10 @@ type Server struct {
 }
 
 func (s *Server) addLoad() int64 {
-	// load := atomic.AddInt64(&s.CurrLoad, 1)
-	// log.Println("addLoad:", load)
-	// return load
 	return atomic.AddInt64(&s.CurrLoad, 1)
 }
 
 func (s *Server) subLoad() int64 {
-	// load := atomic.AddInt64(&s.CurrLoad, -1)
-	// log.Println("subLoad:", load)
 	return atomic.AddInt64(&s.CurrLoad, -1)
 }
 
@@ -99,7 +94,7 @@ func (s *Server) Shutdown(timeout time.Duration) error {
 	return nil
 }
 
-// NewServer .
+// NewServer factory
 func NewServer() *Server {
 	return &Server{
 		Codec:   DefaultCodec,

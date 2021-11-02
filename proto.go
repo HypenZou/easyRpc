@@ -3,22 +3,36 @@ package easyRpc
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 )
 
 const (
-	// RPCCmdNone .
+	// RPCCmdNone is invalid
 	RPCCmdNone byte = 0
-	// RPCCmdReq .
+	// RPCCmdReq Call/Notify
 	RPCCmdReq byte = 1
-	// RPCCmdRsp .
+	// RPCCmdRsp normal response
 	RPCCmdRsp byte = 2
-	// RPCCmdErr .
+	// RPCCmdErr error response
 	RPCCmdErr byte = 3
+)
+
+const (
+	headerIndexCmd          = 0
+	headerIndexAsync        = 1
+	headerIndexMethodLen    = 2
+	headerIndexBodyLenBegin = 4
+	headerIndexBodyLenEnd   = 8
+	headerIndexSeqBegin     = 8
+	headerIndexSeqEnd       = 16
 )
 
 const (
 	// HeadLen defines rpc packet's head length
 	HeadLen int = 16
+
+	// MaxMethodLen limit
+	MaxMethodLen = 255
 
 	// MaxBodyLen limit
 	MaxBodyLen int = 1024 * 1024 * 64
@@ -29,7 +43,7 @@ type Header []byte
 
 // BodyLen return length of message body
 func (h Header) BodyLen() int {
-	return int(binary.LittleEndian.Uint32(h[:4]))
+	return int(binary.LittleEndian.Uint32(h[headerIndexBodyLenBegin:headerIndexBodyLenEnd]))
 }
 
 // Message clones header with body length
@@ -39,7 +53,7 @@ func (h Header) Message() (Message, error) {
 		return Message(h), nil
 	}
 	if l < 0 || l > MaxBodyLen {
-		return nil, ErrInvalidBodyLen
+		return nil, fmt.Errorf("invalid body length: %v", l)
 	}
 	m := Message(make([]byte, HeadLen+l))
 	copy(m, h)
@@ -50,23 +64,33 @@ func (h Header) Message() (Message, error) {
 // Message defines rpc packet
 type Message []byte
 
-// Cmd return message cmd
+// Cmd returns message cmd
 func (m Message) Cmd() byte {
-	return m[4]
+	return m[headerIndexCmd]
 }
 
-// MethodLen return message cmd
+// MethodLen returns message cmd
 func (m Message) MethodLen() int {
-	return int(m[5])
+	return int(m[headerIndexMethodLen])
 }
 
-// Seq return message seq/id
+// Seq returns message sequence
 func (m Message) Seq() uint64 {
-	return binary.LittleEndian.Uint64(m[8:16])
+	return binary.LittleEndian.Uint64(m[headerIndexSeqBegin:headerIndexSeqEnd])
 }
 
-// Parse head and body, return cmd && seq && method && body && err
-func (m Message) Parse() (byte, uint64, string, []byte, error) {
+// Async returns async flag value
+func (m Message) Async() byte {
+	return m[headerIndexAsync]
+}
+
+// IsAsync returns async flag
+func (m Message) IsAsync() bool {
+	return m[headerIndexAsync] == 1
+}
+
+// Parse head and body, return cmd && seq && isAsync && method && body && err
+func (m Message) Parse() (byte, uint64, bool, string, []byte, error) {
 	cmd := m.Cmd()
 	switch cmd {
 	case RPCCmdReq:
@@ -74,20 +98,20 @@ func (m Message) Parse() (byte, uint64, string, []byte, error) {
 		// have methond, return method and body
 		if ml > 0 {
 			if len(m) >= HeadLen+ml {
-				return cmd, m.Seq(), string(m[HeadLen : HeadLen+ml]), m[HeadLen+ml:], nil
+				return cmd, m.Seq(), m.IsAsync(), string(m[HeadLen : HeadLen+ml]), m[HeadLen+ml:], nil
 			}
 		} else {
 			// no null method, return body
-			return cmd, m.Seq(), "", m[HeadLen:], nil
+			return cmd, m.Seq(), m.IsAsync(), "", m[HeadLen:], nil
 		}
 	case RPCCmdRsp:
-		return cmd, m.Seq(), "", m[HeadLen:], nil
+		return cmd, m.Seq(), m.IsAsync(), "", m[HeadLen:], nil
 	case RPCCmdErr:
-		return cmd, m.Seq(), "", nil, errors.New(string(m[HeadLen]))
+		return cmd, m.Seq(), m.IsAsync(), "", nil, errors.New(string(m[HeadLen]))
 	default:
 	}
 
-	return RPCCmdNone, m.Seq(), "", nil, ErrInvalidMessage
+	return RPCCmdNone, m.Seq(), m.IsAsync(), "", nil, ErrInvalidMessage
 }
 
 func newHeader() Header {
