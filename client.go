@@ -175,9 +175,11 @@ func (c *Client) PushMsg(msg Message, timeout time.Duration) error {
 	switch timeout {
 	case TimeForever:
 		c.chSend <- msg
+		msg.Retain()
 	case TimeZero:
 		select {
 		case c.chSend <- msg:
+			msg.Retain()
 		default:
 			return ErrClientQueueIsFull
 		}
@@ -186,6 +188,7 @@ func (c *Client) PushMsg(msg Message, timeout time.Duration) error {
 		defer timer.Stop()
 		select {
 		case c.chSend <- msg:
+			msg.Retain()
 		case <-timer.C:
 			return ErrClientTimeout
 		}
@@ -296,7 +299,8 @@ func (c *Client) sendLoop() {
 	for msg := range c.chSend {
 		conn = c.Conn
 		if !c.reconnecting {
-			c.Handler.Send(conn, msg)
+			c.Handler.Send(conn, msg.Payload())
+			msg.Release()
 		}
 	}
 }
@@ -312,13 +316,13 @@ func (c *Client) newReqMessage(method string, req interface{}, async byte) Messa
 
 	bodyLen = len(method) + len(data)
 
-	msg = Message(make([]byte, HeadLen+bodyLen))
+	msg = Message(memGet(HeadLen + bodyLen))
 	binary.LittleEndian.PutUint32(msg[headerIndexBodyLenBegin:headerIndexBodyLenEnd], uint32(bodyLen))
 	binary.LittleEndian.PutUint64(msg[headerIndexSeqBegin:headerIndexSeqEnd], atomic.AddUint64(&c.seq, 1))
 
 	msg[headerIndexCmd] = RPCCmdReq
-	msg[headerIndexMethodLen] = byte(len(method))
 	msg[headerIndexAsync] = async
+	msg[headerIndexMethodLen] = byte(len(method))
 	copy(msg[HeadLen:HeadLen+len(method)], method)
 	copy(msg[HeadLen+len(method):], data)
 
@@ -329,17 +333,17 @@ func (c *Client) newReqMessage(method string, req interface{}, async byte) Messa
 func newClientWithConn(conn net.Conn, codec Codec, handler Handler, onStop func() int64) *Client {
 	DefaultLogger.Info("[easyRpc] New Client \"%v\" Connected", conn.RemoteAddr())
 
-	return &Client{
-		Conn:    conn,
-		Reader:  handler.WrapReader(conn),
-		Head:    newHeader(),
-		Codec:   codec,
-		Handler: handler,
+	client := clientPool.Get().(*Client)
+	client.Conn = conn
+	client.Reader = handler.WrapReader(conn)
+	client.Head = newHeader()
+	client.Codec = codec
+	client.Handler = handler
+	client.sessionMap = make(map[uint64]*rpcSession)
+	client.asyncHandlerMap = make(map[uint64]func(*Context))
+	client.onStop = onStop
 
-		sessionMap:      make(map[uint64]*rpcSession),
-		asyncHandlerMap: make(map[uint64]func(*Context)),
-		onStop:          onStop,
-	}
+	return client
 }
 
 // NewClient factory
@@ -351,15 +355,15 @@ func NewClient(dialer func() (net.Conn, error)) (*Client, error) {
 
 	DefaultLogger.Info("[easyRpc] Client \"%v\" Connected", conn.RemoteAddr())
 
-	return &Client{
-		Conn:    conn,
-		Reader:  DefaultHandler.WrapReader(conn),
-		Head:    newHeader(),
-		Codec:   DefaultCodec,
-		Handler: DefaultHandler,
-		Dialer:  dialer,
+	client := clientPool.Get().(*Client)
+	client.Conn = conn
+	client.Reader = DefaultHandler.WrapReader(conn)
+	client.Head = newHeader()
+	client.Codec = DefaultCodec
+	client.Handler = DefaultHandler
+	client.Dialer = dialer
+	client.sessionMap = make(map[uint64]*rpcSession)
+	client.asyncHandlerMap = make(map[uint64]func(*Context))
 
-		sessionMap:      make(map[uint64]*rpcSession),
-		asyncHandlerMap: make(map[uint64]func(*Context)),
-	}, nil
+	return client, nil
 }
