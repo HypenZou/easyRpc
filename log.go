@@ -1,9 +1,13 @@
+// Copyright 2020 lesismal. All rights reserved.
+// Use of this source code is governed by an MIT-style
+// license that can be found in the LICENSE file.
+
 package easyRpc
 
 import "log"
 
 // DefaultLogger instance
-var DefaultLogger Logger = &logger{}
+var DefaultLogger Logger = &StdLogger{Enable: true}
 
 // Logger defines log interface
 type Logger interface {
@@ -18,20 +22,35 @@ func SetLogger(l Logger) {
 	DefaultLogger = l
 }
 
-type logger struct{}
-
-func (l *logger) Debug(format string, v ...interface{}) {
-	log.Printf(format, v...)
+// StdLogger defines default logger
+type StdLogger struct {
+	Enable bool
 }
 
-func (l *logger) Info(format string, v ...interface{}) {
-	log.Printf(format, v...)
+// Debug simply printf
+func (l *StdLogger) Debug(format string, v ...interface{}) {
+	if l.Enable {
+		log.Printf(format, v...)
+	}
 }
 
-func (l *logger) Warn(format string, v ...interface{}) {
-	log.Printf(format, v...)
+// Info simply printf
+func (l *StdLogger) Info(format string, v ...interface{}) {
+	if l.Enable {
+		log.Printf(format, v...)
+	}
 }
 
-func (l *logger) Error(format string, v ...interface{}) {
-	log.Printf(format, v...)
+// Warn simply printf
+func (l *StdLogger) Warn(format string, v ...interface{}) {
+	if l.Enable {
+		log.Printf(format, v...)
+	}
+}
+
+// Error simply printf
+func (l *StdLogger) Error(format string, v ...interface{}) {
+	if l.Enable {
+		log.Printf(format, v...)
+	}
 }

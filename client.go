@@ -1,3 +1,7 @@
+// Copyright 2020 lesismal. All rights reserved.
+// Use of this source code is governed by an MIT-style
+// license that can be found in the LICENSE file.
+
 package easyRpc
 
 import (
@@ -35,11 +39,13 @@ type Client struct {
 	sessionMap      map[uint64]*rpcSession
 	asyncHandlerMap map[uint64]func(*Context)
 
-	onStop      func() int64
-	onConnected func(*Client)
+	onStop         func() int64
+	onConnected    func(*Client)
+	onDisConnected func(*Client)
 
 	Conn    net.Conn
 	Reader  io.Reader
+	head    [HeadLen]byte
 	Head    Header
 	Codec   Codec
 	Handler Handler
@@ -49,6 +55,11 @@ type Client struct {
 // OnConnected registers callback on connected
 func (c *Client) OnConnected(onConnected func(*Client)) {
 	c.onConnected = onConnected
+}
+
+// OnDisconnected registers callback on disconnected
+func (c *Client) OnDisconnected(onDisConnected func(*Client)) {
+	c.onDisConnected = onDisConnected
 }
 
 // Run client
@@ -67,12 +78,16 @@ func (c *Client) Run() {
 func (c *Client) Stop() {
 	c.mux.Lock()
 	defer c.mux.Unlock()
+
 	if c.running {
 		c.running = false
 		c.Conn.Close()
 		close(c.chSend)
 		if c.onStop != nil {
 			c.onStop()
+		}
+		if c.onDisConnected != nil {
+			c.onDisConnected(c)
 		}
 	}
 }
@@ -91,10 +106,11 @@ func (c *Client) Call(method string, req interface{}, rsp interface{}, timeout t
 	defer timer.Stop()
 
 	msg := c.newReqMessage(method, req, 0)
-	seq := msg.Seq()
 
-	session := &rpcSession{seq: seq, done: make(chan Message, 1)}
-	c.addSession(seq, session)
+	seq := msg.Seq()
+	sess := sessionGet(seq)
+	defer sessionPut(sess)
+	c.addSession(seq, sess)
 	defer c.deleteSession(seq)
 
 	select {
@@ -104,7 +120,9 @@ func (c *Client) Call(method string, req interface{}, rsp interface{}, timeout t
 	}
 
 	select {
-	case msg = <-session.done:
+	// response msg
+	case msg = <-sess.done:
+		defer memPut(msg)
 	case <-timer.C:
 		return ErrClientTimeout
 	}
@@ -131,31 +149,13 @@ func (c *Client) Call(method string, req interface{}, rsp interface{}, timeout t
 
 // CallAsync make async rpc call
 func (c *Client) CallAsync(method string, req interface{}, handler func(*Context), timeout time.Duration) error {
-	if !c.running {
-		return ErrClientStopped
-	}
-
-	if timeout <= 0 {
-		return fmt.Errorf("invalid timeout arg: %v", timeout)
-	}
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
 	msg := c.newReqMessage(method, req, 1)
-
 	if handler != nil {
 		seq := msg.Seq()
 		c.addAsyncHandler(seq, handler)
 	}
 
-	select {
-	case c.chSend <- msg:
-	case <-timer.C:
-		return ErrClientTimeout
-	}
-
-	return nil
+	return c.PushMsg(msg, timeout)
 }
 
 // Notify make rpc notify
@@ -333,10 +333,10 @@ func (c *Client) newReqMessage(method string, req interface{}, async byte) Messa
 func newClientWithConn(conn net.Conn, codec Codec, handler Handler, onStop func() int64) *Client {
 	DefaultLogger.Info("[easyRpc] New Client \"%v\" Connected", conn.RemoteAddr())
 
-	client := clientPool.Get().(*Client)
+	client := &Client{}
 	client.Conn = conn
 	client.Reader = handler.WrapReader(conn)
-	client.Head = newHeader()
+	client.Head = Header(client.head[:])
 	client.Codec = codec
 	client.Handler = handler
 	client.sessionMap = make(map[uint64]*rpcSession)
@@ -355,10 +355,10 @@ func NewClient(dialer func() (net.Conn, error)) (*Client, error) {
 
 	DefaultLogger.Info("[easyRpc] Client \"%v\" Connected", conn.RemoteAddr())
 
-	client := clientPool.Get().(*Client)
+	client := &Client{}
 	client.Conn = conn
 	client.Reader = DefaultHandler.WrapReader(conn)
-	client.Head = newHeader()
+	client.Head = Header(client.head[:])
 	client.Codec = DefaultCodec
 	client.Handler = DefaultHandler
 	client.Dialer = dialer

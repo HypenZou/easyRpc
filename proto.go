@@ -1,3 +1,7 @@
+// Copyright 2020 lesismal. All rights reserved.
+// Use of this source code is governed by an MIT-style
+// license that can be found in the LICENSE file.
+
 package easyRpc
 
 import (
@@ -178,8 +182,4 @@ func NewRefMessage(codec Codec, method string, v interface{}) Message {
 	atomic.AddInt32((*int32)(unsafe.Pointer(&(msg[0]))), 1)
 
 	return msg
-}
-
-func newHeader() Header {
-	return Header(make([]byte, HeadLen))
 }

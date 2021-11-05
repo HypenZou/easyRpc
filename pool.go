@@ -1,3 +1,7 @@
+// Copyright 2020 lesismal. All rights reserved.
+// Use of this source code is governed by an MIT-style
+// license that can be found in the LICENSE file.
+
 package easyRpc
 
 import (
@@ -17,10 +21,10 @@ var (
 		},
 	}
 
-	// Client Pool
-	clientPool = sync.Pool{
+	// rpcSession Pool
+	sessionPool = sync.Pool{
 		New: func() interface{} {
-			return &Client{}
+			return &rpcSession{done: make(chan Message, 1)}
 		},
 	}
 )
@@ -31,4 +35,19 @@ func memGet(size int) []byte {
 
 func memPut(b []byte) {
 	memPool.Put(b)
+}
+
+func sessionGet(seq uint64) *rpcSession {
+	sess := sessionPool.Get().(*rpcSession)
+	sess.seq = seq
+	return sess
+}
+
+func sessionPut(sess *rpcSession) {
+	select {
+	case msg := <-sess.done:
+		memPut(msg)
+	default:
+	}
+	sessionPool.Put(sess)
 }

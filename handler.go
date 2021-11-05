@@ -1,3 +1,7 @@
+// Copyright 2020 lesismal. All rights reserved.
+// Use of this source code is governed by an MIT-style
+// license that can be found in the LICENSE file.
+
 package easyRpc
 
 import (
@@ -20,6 +24,8 @@ type Handler interface {
 
 	// WrapReader wraps net.Conn to Read data with io.Reader, buffer e.g.
 	WrapReader(conn net.Conn) io.Reader
+	// SetReaderWrapper sets reader wrapper
+	SetReaderWrapper(wrapper func(conn net.Conn) io.Reader)
 
 	// Recv reads and returns a message from a client
 	Recv(c *Client) (Message, error)
@@ -42,6 +48,7 @@ type Handler interface {
 type handler struct {
 	beforeRecv    func(net.Conn) error
 	beforeSend    func(net.Conn) error
+	wrapReader    func(conn net.Conn) io.Reader
 	routes        map[string]func(*Context)
 	sendQueueSize int
 }
@@ -55,7 +62,14 @@ func (h *handler) BeforeSend(bh func(net.Conn) error) {
 }
 
 func (h *handler) WrapReader(conn net.Conn) io.Reader {
-	return bufio.NewReaderSize(conn, 1024)
+	if h.wrapReader != nil {
+		return h.wrapReader(conn)
+	}
+	return conn
+}
+
+func (h *handler) SetReaderWrapper(wrapper func(conn net.Conn) io.Reader) {
+	h.wrapReader = wrapper
 }
 
 func (h *handler) Recv(c *Client) (Message, error) {
@@ -115,13 +129,16 @@ func (h *handler) Handle(method string, cb func(*Context)) {
 
 func (h *handler) OnMessage(c *Client, msg Message) {
 	cmd, seq, isAsync, method, body, err := msg.Parse()
-	defer memPut(msg)
 	switch cmd {
 	case RPCCmdReq:
 		if cb, ok := h.routes[method]; ok {
+			defer memPut(msg)
 			defer handlePanic()
 			cb(NewContext(c, msg))
+			// cb(NewContext(c, msg))
+			// memPut(msg)
 		} else {
+			memPut(msg)
 			DefaultLogger.Info("invalid method: [%v], %v, %v", method, body, err)
 		}
 	case RPCCmdRsp, RPCCmdErr:
@@ -130,17 +147,24 @@ func (h *handler) OnMessage(c *Client, msg Message) {
 			if ok {
 				session.done <- msg
 			} else {
+				memPut(msg)
 				DefaultLogger.Info("session not exist or expired: [seq: %v] [len(body): %v] [%v]", seq, len(body), err)
 			}
 		} else {
 			handler, ok := c.getAndDeleteAsyncHandler(seq)
 			if ok {
+				defer memPut(msg)
+				defer handlePanic()
 				handler(&Context{Client: c, Message: msg})
+				// handler(&Context{Client: c, Message: msg})
+				// memPut(msg)
 			} else {
+				memPut(msg)
 				DefaultLogger.Info("asyncHandler not exist or expired: [seq: %v] [len(body): %v, %v] [%v]", seq, len(body), string(body), err)
 			}
 		}
 	default:
+		memPut(msg)
 		DefaultLogger.Info("invalid cmd: [%v]", cmd)
 	}
 }
@@ -149,5 +173,8 @@ func (h *handler) OnMessage(c *Client, msg Message) {
 func NewHandler() Handler {
 	return &handler{
 		sendQueueSize: 1024,
+		wrapReader: func(conn net.Conn) io.Reader {
+			return bufio.NewReaderSize(conn, 1024)
+		},
 	}
 }
