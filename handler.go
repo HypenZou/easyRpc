@@ -16,6 +16,9 @@ var DefaultHandler Handler = NewHandler()
 
 // Handler defines net message handler
 type Handler interface {
+	// Clone returns a copy
+	Clone() Handler
+
 	// BeforeRecv registers callback before Recv
 	BeforeRecv(bh func(net.Conn) error)
 
@@ -32,6 +35,8 @@ type Handler interface {
 
 	// Send writes a message to a connection
 	Send(c net.Conn, m Message) (int, error)
+	// SendN writes batch messages to a connection
+	SendN(conn net.Conn, buffers net.Buffers) (int, error)
 
 	// SendQueueSize returns Client's chSend capacity
 	SendQueueSize() int
@@ -39,7 +44,7 @@ type Handler interface {
 	SetSendQueueSize(size int)
 
 	// Handle registers method handler
-	Handle(m string, h func(*Context))
+	Handle(m string, h RouterFunc)
 
 	// OnMessage dispatches messages
 	OnMessage(c *Client, m Message)
@@ -49,8 +54,14 @@ type handler struct {
 	beforeRecv    func(net.Conn) error
 	beforeSend    func(net.Conn) error
 	wrapReader    func(conn net.Conn) io.Reader
-	routes        map[string]func(*Context)
+	routes        map[string]RouterFunc
 	sendQueueSize int
+}
+
+// Clone returns a copy
+func (h *handler) Clone() Handler {
+	var cp = *h
+	return &cp
 }
 
 func (h *handler) BeforeRecv(bh func(net.Conn) error) {
@@ -70,6 +81,27 @@ func (h *handler) WrapReader(conn net.Conn) io.Reader {
 
 func (h *handler) SetReaderWrapper(wrapper func(conn net.Conn) io.Reader) {
 	h.wrapReader = wrapper
+}
+
+func (h *handler) SendQueueSize() int {
+	return h.sendQueueSize
+}
+
+func (h *handler) SetSendQueueSize(size int) {
+	h.sendQueueSize = size
+}
+
+func (h *handler) Handle(method string, cb RouterFunc) {
+	if h.routes == nil {
+		h.routes = map[string]RouterFunc{}
+	}
+	if len(method) > MaxMethodLen {
+		panic(fmt.Errorf("invalid method length %v(> MaxMethodLen %v)", len(method), MaxMethodLen))
+	}
+	if _, ok := h.routes[method]; ok {
+		panic(fmt.Errorf("handler exist for method %v ", method))
+	}
+	h.routes[method] = cb
 }
 
 func (h *handler) Recv(c *Client) (Message, error) {
@@ -106,37 +138,28 @@ func (h *handler) Send(conn net.Conn, m Message) (int, error) {
 	return conn.Write(m)
 }
 
-func (h *handler) SendQueueSize() int {
-	return h.sendQueueSize
-}
-
-func (h *handler) SetSendQueueSize(size int) {
-	h.sendQueueSize = size
-}
-
-func (h *handler) Handle(method string, cb func(*Context)) {
-	if h.routes == nil {
-		h.routes = map[string]func(*Context){}
+func (h *handler) SendN(conn net.Conn, buffers net.Buffers) (int, error) {
+	if h.beforeSend != nil {
+		if err := h.beforeSend(conn); err != nil {
+			return -1, err
+		}
 	}
-	if len(method) > MaxMethodLen {
-		panic(fmt.Errorf("invalid method length %v(> MaxMethodLen %v)", len(method), MaxMethodLen))
-	}
-	if _, ok := h.routes[method]; ok {
-		panic(fmt.Errorf("handler exist for method %v ", method))
-	}
-	h.routes[method] = cb
+	n64, err := buffers.WriteTo(conn)
+	return int(n64), err
 }
 
 func (h *handler) OnMessage(c *Client, msg Message) {
 	cmd, seq, isAsync, method, body, err := msg.Parse()
 	switch cmd {
 	case RPCCmdReq:
-		if cb, ok := h.routes[method]; ok {
-			defer memPut(msg)
+		if h, ok := h.routes[method]; ok {
+			ctx := ctxGet(c, msg)
+			defer func() {
+				ctxPut(ctx)
+				memPut(msg)
+			}()
 			defer handlePanic()
-			cb(NewContext(c, msg))
-			// cb(NewContext(c, msg))
-			// memPut(msg)
+			h(ctx)
 		} else {
 			memPut(msg)
 			DefaultLogger.Info("invalid method: [%v], %v, %v", method, body, err)
@@ -153,11 +176,14 @@ func (h *handler) OnMessage(c *Client, msg Message) {
 		} else {
 			handler, ok := c.getAndDeleteAsyncHandler(seq)
 			if ok {
-				defer memPut(msg)
+				handler.t.Stop()
+				ctx := ctxGet(c, msg)
+				defer func() {
+					ctxPut(ctx)
+					memPut(msg)
+				}()
 				defer handlePanic()
-				handler(&Context{Client: c, Message: msg})
-				// handler(&Context{Client: c, Message: msg})
-				// memPut(msg)
+				handler.h(ctx)
 			} else {
 				memPut(msg)
 				DefaultLogger.Info("asyncHandler not exist or expired: [seq: %v] [len(body): %v, %v] [%v]", seq, len(body), string(body), err)

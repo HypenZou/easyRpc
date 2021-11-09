@@ -64,10 +64,10 @@ func (s *Server) runLoop() error {
 				if max := 1 * time.Second; tempDelay > max {
 					tempDelay = max
 				}
-				DefaultLogger.Info("[easyRpc] Server Accept error: %v; retrying in %v", err, tempDelay)
+				DefaultLogger.Info("[easyRpc SVR] Accept error: %v; retrying in %v", err, tempDelay)
 				time.Sleep(tempDelay)
 			} else {
-				DefaultLogger.Error("[easyRpc] Server Accept error:", err)
+				DefaultLogger.Error("[easyRpc SVR] Accept error:", err)
 				break
 			}
 		}
@@ -80,14 +80,27 @@ func (s *Server) runLoop() error {
 func (s *Server) Serve(ln net.Listener) error {
 	s.ln = ln
 	s.chStop = make(chan error)
-	DefaultLogger.Info("[easyRpc] Server Running On: \"%v\"", ln.Addr())
-	defer DefaultLogger.Info("[easyRpc] Server Stopped")
+	DefaultLogger.Info("[easyRpc SVR] Running On: \"%v\"", ln.Addr())
+	defer DefaultLogger.Info("[easyRpc SVR] Stopped")
+	return s.runLoop()
+}
+
+// Run starts a tcp service on addr
+func (s *Server) Run(addr string) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	s.ln = ln
+	s.chStop = make(chan error)
+	DefaultLogger.Info("[easyRpc SVR] Running On: \"%v\"", ln.Addr())
+	defer DefaultLogger.Info("[easyRpc SVR] Stopped")
 	return s.runLoop()
 }
 
 // Shutdown stop rpc service
 func (s *Server) Shutdown(timeout time.Duration) error {
-	DefaultLogger.Info("[easyRpc] Server \"%v\" Shutdown...", s.ln.Addr())
+	DefaultLogger.Info("[easyRpc SVR] %v Shutdown...", s.ln.Addr())
 	s.running = false
 	s.ln.Close()
 	select {
@@ -102,6 +115,6 @@ func (s *Server) Shutdown(timeout time.Duration) error {
 func NewServer() *Server {
 	return &Server{
 		Codec:   DefaultCodec,
-		Handler: DefaultHandler,
+		Handler: DefaultHandler.Clone(),
 	}
 }

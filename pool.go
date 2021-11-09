@@ -27,6 +27,13 @@ var (
 			return &rpcSession{done: make(chan Message, 1)}
 		},
 	}
+
+	// asyncHandler Pool
+	asyncHandlerPool = sync.Pool{
+		New: func() interface{} {
+			return &asyncHandler{}
+		},
+	}
 )
 
 func memGet(size int) []byte {
@@ -35,6 +42,17 @@ func memGet(size int) []byte {
 
 func memPut(b []byte) {
 	memPool.Put(b)
+}
+
+func ctxGet(c *Client, msg Message) *Context {
+	ctx := ctxPool.Get().(*Context)
+	ctx.Client = c
+	ctx.Message = msg
+	return ctx
+}
+
+func ctxPut(ctx *Context) {
+	ctxPool.Put(ctx)
 }
 
 func sessionGet(seq uint64) *rpcSession {
@@ -50,4 +68,14 @@ func sessionPut(sess *rpcSession) {
 	default:
 	}
 	sessionPool.Put(sess)
+}
+
+func asyncHandlerGet(h RouterFunc) *asyncHandler {
+	handler := asyncHandlerPool.Get().(*asyncHandler)
+	handler.h = h
+	return handler
+}
+
+func asyncHandlerPut(h *asyncHandler) {
+	asyncHandlerPool.Put(h)
 }
