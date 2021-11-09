@@ -12,15 +12,17 @@ import (
 
 // Server definition
 type Server struct {
-	ln       net.Listener
-	chStop   chan error
-	running  bool
 	Accepted int64
 	CurrLoad int64
 	MaxLoad  int64
 
 	Codec   Codec
 	Handler Handler
+
+	Listener net.Listener
+
+	running bool
+	chStop  chan error
 }
 
 func (s *Server) addLoad() int64 {
@@ -43,10 +45,10 @@ func (s *Server) runLoop() error {
 	defer close(s.chStop)
 
 	for s.running {
-		conn, err = s.ln.Accept()
+		conn, err = s.Listener.Accept()
 		if err == nil {
 			load := s.addLoad()
-			if s.MaxLoad == 0 || load <= s.MaxLoad {
+			if s.MaxLoad <= 0 || load <= s.MaxLoad {
 				s.Accepted++
 				cli = newClientWithConn(conn, s.Codec, s.Handler, s.subLoad)
 				cli.Run()
@@ -64,10 +66,10 @@ func (s *Server) runLoop() error {
 				if max := 1 * time.Second; tempDelay > max {
 					tempDelay = max
 				}
-				DefaultLogger.Info("[easyRpc SVR] Accept error: %v; retrying in %v", err, tempDelay)
+				logError("%v Accept error: %v; retrying in %v", s.Handler.LogTag(), err, tempDelay)
 				time.Sleep(tempDelay)
 			} else {
-				DefaultLogger.Error("[easyRpc SVR] Accept error:", err)
+				logError("%v Accept error:", s.Handler.LogTag(), err)
 				break
 			}
 		}
@@ -78,10 +80,10 @@ func (s *Server) runLoop() error {
 
 // Serve starts rpc service with listener
 func (s *Server) Serve(ln net.Listener) error {
-	s.ln = ln
+	s.Listener = ln
 	s.chStop = make(chan error)
-	DefaultLogger.Info("[easyRpc SVR] Running On: \"%v\"", ln.Addr())
-	defer DefaultLogger.Info("[easyRpc SVR] Stopped")
+	logInfo("%v Running On: \"%v\"", s.Handler.LogTag(), ln.Addr())
+	defer logInfo("%v Stopped", s.Handler.LogTag())
 	return s.runLoop()
 }
 
@@ -89,20 +91,22 @@ func (s *Server) Serve(ln net.Listener) error {
 func (s *Server) Run(addr string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
+		logInfo("%v Running failed: %v", s.Handler.LogTag(), err)
 		return err
 	}
-	s.ln = ln
+	s.Listener = ln
 	s.chStop = make(chan error)
-	DefaultLogger.Info("[easyRpc SVR] Running On: \"%v\"", ln.Addr())
-	defer DefaultLogger.Info("[easyRpc SVR] Stopped")
+	logInfo("%v Running On: \"%v\"", s.Handler.LogTag(), ln.Addr())
+	defer logInfo("%v Stopped", s.Handler.LogTag())
 	return s.runLoop()
 }
 
 // Shutdown stop rpc service
 func (s *Server) Shutdown(timeout time.Duration) error {
-	DefaultLogger.Info("[easyRpc SVR] %v Shutdown...", s.ln.Addr())
+	logInfo("%v %v Shutdown...", s.Handler.LogTag(), s.Listener.Addr())
+	defer logInfo("%v %v Shutdown done", s.Handler.LogTag(), s.Listener.Addr())
 	s.running = false
-	s.ln.Close()
+	s.Listener.Close()
 	select {
 	case <-s.chStop:
 	case <-time.After(timeout):
@@ -113,8 +117,10 @@ func (s *Server) Shutdown(timeout time.Duration) error {
 
 // NewServer factory
 func NewServer() *Server {
+	h := DefaultHandler.Clone()
+	h.SetLogTag("[easyRpc SVR]")
 	return &Server{
 		Codec:   DefaultCodec,
-		Handler: DefaultHandler.Clone(),
+		Handler: h,
 	}
 }

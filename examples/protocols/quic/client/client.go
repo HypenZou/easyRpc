@@ -1,16 +1,22 @@
 package main
 
 import (
+	"crypto/tls"
 	"log"
 	"net"
 	"time"
 
 	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbaaa/easyRpcext"
 )
 
 func main() {
 	client, err := easyRpc.NewClient(func() (net.Conn, error) {
-		return net.DialTimeout("tcp", "localhost:8888", time.Second*3)
+		tlsConf := &tls.Config{
+			InsecureSkipVerify: true,
+			NextProtos:         []string{"quic-echo-example"},
+		}
+		return easyRpcext.DialQuic("localhost:8888", tlsConf, nil, 0)
 	})
 	if err != nil {
 		panic(err)

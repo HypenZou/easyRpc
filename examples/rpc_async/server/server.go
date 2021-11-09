@@ -1,37 +1,22 @@
 package main
 
-import (
-	"log"
-	"net"
-
-	"github.com/wubbalubbaaa/easyRpc"
-)
-
-const (
-	addr = ":8888"
-
-	method = "Hello"
-)
-
-// OnClientHello .
-func OnClientHello(ctx *easyRpc.Context) {
-	str := ""
-	ctx.Bind(&str)
-
-	log.Printf("OnClientHello: \"%v\"", str)
-
-	// async response should Clone a Context to Write
-	go ctx.Clone().Write(str)
-}
+import "github.com/wubbalubbaaa/easyRpc"
 
 func main() {
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
 	svr := easyRpc.NewServer()
-	svr.Handler.Handle(method, OnClientHello)
 
-	svr.Serve(ln)
+	// register router
+	svr.Handler.Handle("/echo", func(ctx *easyRpc.Context) {
+		str := ""
+		ctx.Bind(&str)
+
+		// async response should Clone a Context to Write and Release after used
+		ctxCopy := ctx.Clone()
+		go func() {
+			defer ctxCopy.Release()
+			ctxCopy.Write(str)
+		}()
+	})
+
+	svr.Run(":8888")
 }

@@ -14,16 +14,33 @@ import (
 // DefaultHandler instance
 var DefaultHandler Handler = NewHandler()
 
+// HandlerFunc type define
+type HandlerFunc func(*Context)
+
 // Handler defines net message handler
 type Handler interface {
 	// Clone returns a copy
 	Clone() Handler
+
+	// LogTag returns log tag value
+	LogTag() string
+	// SetLogTag value
+	SetLogTag(tag string)
 
 	// BeforeRecv registers callback before Recv
 	BeforeRecv(bh func(net.Conn) error)
 
 	// BeforeSend registers callback before Send
 	BeforeSend(bh func(net.Conn) error)
+
+	// BatchRecv flag
+	BatchRecv() bool
+	// SetBatchRecv flag
+	SetBatchRecv(batch bool)
+	// BatchSend flag
+	BatchSend() bool
+	// SetBatchSend flag
+	SetBatchSend(batch bool)
 
 	// WrapReader wraps net.Conn to Read data with io.Reader, buffer e.g.
 	WrapReader(conn net.Conn) io.Reader
@@ -38,30 +55,49 @@ type Handler interface {
 	// SendN writes batch messages to a connection
 	SendN(conn net.Conn, buffers net.Buffers) (int, error)
 
-	// SendQueueSize returns Client's chSend capacity
+	// RecvBufferSize returns Client.Reader size
+	RecvBufferSize() int
+	// SetRecvBufferSize sets Client.Reader size
+	SetRecvBufferSize(size int)
+
+	// SendQueueSize returns Client.chSend capacity
 	SendQueueSize() int
-	// SetSendQueueSize sets Client's chSend capacity
+	// SetSendQueueSize sets Client.chSend capacity
 	SetSendQueueSize(size int)
 
 	// Handle registers method handler
-	Handle(m string, h RouterFunc)
+	Handle(m string, h HandlerFunc)
 
 	// OnMessage dispatches messages
 	OnMessage(c *Client, m Message)
 }
 
 type handler struct {
-	beforeRecv    func(net.Conn) error
-	beforeSend    func(net.Conn) error
-	wrapReader    func(conn net.Conn) io.Reader
-	routes        map[string]RouterFunc
-	sendQueueSize int
+	logtag         string
+	batchRecv      bool
+	batchSend      bool
+	recvBufferSize int
+	sendQueueSize  int
+
+	beforeRecv func(net.Conn) error
+	beforeSend func(net.Conn) error
+
+	wrapReader func(conn net.Conn) io.Reader
+
+	routes map[string]HandlerFunc
 }
 
-// Clone returns a copy
 func (h *handler) Clone() Handler {
 	var cp = *h
 	return &cp
+}
+
+func (h *handler) LogTag() string {
+	return h.logtag
+}
+
+func (h *handler) SetLogTag(tag string) {
+	h.logtag = tag
 }
 
 func (h *handler) BeforeRecv(bh func(net.Conn) error) {
@@ -70,6 +106,22 @@ func (h *handler) BeforeRecv(bh func(net.Conn) error) {
 
 func (h *handler) BeforeSend(bh func(net.Conn) error) {
 	h.beforeSend = bh
+}
+
+func (h *handler) BatchRecv() bool {
+	return h.batchRecv
+}
+
+func (h *handler) SetBatchRecv(batch bool) {
+	h.batchRecv = batch
+}
+
+func (h *handler) BatchSend() bool {
+	return h.batchSend
+}
+
+func (h *handler) SetBatchSend(batch bool) {
+	h.batchSend = batch
 }
 
 func (h *handler) WrapReader(conn net.Conn) io.Reader {
@@ -83,6 +135,14 @@ func (h *handler) SetReaderWrapper(wrapper func(conn net.Conn) io.Reader) {
 	h.wrapReader = wrapper
 }
 
+func (h *handler) RecvBufferSize() int {
+	return h.recvBufferSize
+}
+
+func (h *handler) SetRecvBufferSize(size int) {
+	h.recvBufferSize = size
+}
+
 func (h *handler) SendQueueSize() int {
 	return h.sendQueueSize
 }
@@ -91,9 +151,9 @@ func (h *handler) SetSendQueueSize(size int) {
 	h.sendQueueSize = size
 }
 
-func (h *handler) Handle(method string, cb RouterFunc) {
+func (h *handler) Handle(method string, cb HandlerFunc) {
 	if h.routes == nil {
-		h.routes = map[string]RouterFunc{}
+		h.routes = map[string]HandlerFunc{}
 	}
 	if len(method) > MaxMethodLen {
 		panic(fmt.Errorf("invalid method length %v(> MaxMethodLen %v)", len(method), MaxMethodLen))
@@ -149,32 +209,42 @@ func (h *handler) SendN(conn net.Conn, buffers net.Buffers) (int, error) {
 }
 
 func (h *handler) OnMessage(c *Client, msg Message) {
-	cmd, seq, isAsync, method, body, err := msg.Parse()
-	switch cmd {
-	case RPCCmdReq:
-		if h, ok := h.routes[method]; ok {
+	// cmd, seq, isAsync, method, body, err := msg.parse()
+	switch msg.Cmd() {
+	case CmdRequest, CmdNotify:
+		if msg.MethodLen() == 0 {
+			logWarn("%v OnMessage: invalid request message with 0 method length, dropped", h.LogTag())
+			return
+		}
+		method := msg.Method()
+		if handler, ok := h.routes[method]; ok {
 			ctx := ctxGet(c, msg)
 			defer func() {
 				ctxPut(ctx)
 				memPut(msg)
 			}()
 			defer handlePanic()
-			h(ctx)
+			handler(ctx)
 		} else {
 			memPut(msg)
-			DefaultLogger.Info("invalid method: [%v], %v, %v", method, body, err)
+			logWarn("%v OnMessage: invalid method: [%v], no handler", h.LogTag(), method)
 		}
-	case RPCCmdRsp, RPCCmdErr:
-		if !isAsync {
+	case CmdResponse:
+		if msg.MethodLen() > 0 {
+			logWarn("%v OnMessage: invalid response message with method length %v, dropped", h.LogTag(), msg.MethodLen())
+			return
+		}
+		if !msg.IsAsync() {
+			seq := msg.Seq()
 			session, ok := c.getSession(seq)
 			if ok {
 				session.done <- msg
 			} else {
 				memPut(msg)
-				DefaultLogger.Info("session not exist or expired: [seq: %v] [len(body): %v] [%v]", seq, len(body), err)
+				logWarn("%v OnMessage: session not exist or expired", h.LogTag())
 			}
 		} else {
-			handler, ok := c.getAndDeleteAsyncHandler(seq)
+			handler, ok := c.getAndDeleteAsyncHandler(msg.Seq())
 			if ok {
 				ctx := ctxGet(c, msg)
 				defer func() {
@@ -182,24 +252,29 @@ func (h *handler) OnMessage(c *Client, msg Message) {
 					memPut(msg)
 				}()
 				defer handlePanic()
-				handler.h(ctx)
+				handler(ctx)
 			} else {
 				memPut(msg)
-				DefaultLogger.Info("asyncHandler not exist or expired: [seq: %v] [len(body): %v, %v] [%v]", seq, len(body), string(body), err)
+				logWarn("%v OnMessage: async handler not exist or expired", h.LogTag())
 			}
 		}
 	default:
 		memPut(msg)
-		DefaultLogger.Info("invalid cmd: [%v]", cmd)
+		logWarn("%v OnMessage: invalid cmd [%v]", h.LogTag(), msg.Cmd())
 	}
 }
 
 // NewHandler factory
 func NewHandler() Handler {
-	return &handler{
-		sendQueueSize: 1024,
-		wrapReader: func(conn net.Conn) io.Reader {
-			return bufio.NewReaderSize(conn, 1024)
-		},
+	h := &handler{
+		logtag:         "[easyRpc CLI]",
+		batchRecv:      true,
+		batchSend:      true,
+		recvBufferSize: 4096,
+		sendQueueSize:  1024,
 	}
+	h.wrapReader = func(conn net.Conn) io.Reader {
+		return bufio.NewReaderSize(conn, h.recvBufferSize)
+	}
+	return h
 }

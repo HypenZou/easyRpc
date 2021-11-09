@@ -6,13 +6,11 @@ package easyRpc
 
 import (
 	"sync"
-
-	"github.com/wubbalubbaaa/mmp"
 )
 
 var (
 	// Mem Pool
-	memPool = mmp.New(MaxBodyLen)
+	memPool = newMemPool(MaxBodyLen)
 
 	// Context Pool
 	ctxPool = sync.Pool{
@@ -29,11 +27,11 @@ var (
 	}
 
 	// asyncHandler Pool
-	asyncHandlerPool = sync.Pool{
-		New: func() interface{} {
-			return &asyncHandler{}
-		},
-	}
+	// asyncHandlerPool = sync.Pool{
+	// 	New: func() interface{} {
+	// 		return &asyncHandler{}
+	// 	},
+	// }
 )
 
 func memGet(size int) []byte {
@@ -70,12 +68,12 @@ func sessionPut(sess *rpcSession) {
 	sessionPool.Put(sess)
 }
 
-func asyncHandlerGet(h RouterFunc) *asyncHandler {
-	handler := asyncHandlerPool.Get().(*asyncHandler)
-	handler.h = h
-	return handler
-}
+// func asyncHandlerGet(h HandlerFunc) *asyncHandler {
+// 	handler := asyncHandlerPool.Get().(*asyncHandler)
+// 	handler.h = h
+// 	return handler
+// }
 
-func asyncHandlerPut(h *asyncHandler) {
-	asyncHandlerPool.Put(h)
-}
+// func asyncHandlerPut(h *asyncHandler) {
+// 	asyncHandlerPool.Put(h)
+// }

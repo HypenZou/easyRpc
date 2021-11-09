@@ -10,7 +10,11 @@ import (
 
 func main() {
 	client, err := easyRpc.NewClient(func() (net.Conn, error) {
-		return net.DialTimeout("tcp", "localhost:8888", time.Second*3)
+		addr, err := net.ResolveUnixAddr("unix", "bench.unixsock")
+		if err != nil {
+			return nil, err
+		}
+		return net.DialUnix("unix", nil, addr)
 	})
 	if err != nil {
 		panic(err)

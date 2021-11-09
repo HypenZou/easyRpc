@@ -2,11 +2,21 @@ package main
 
 import (
 	"log"
+	"net"
 
 	"github.com/wubbalubbaaa/easyRpc"
 )
 
 func main() {
+	addr, err := net.ResolveUnixAddr("unix", "bench.unixsock")
+	if err != nil {
+		log.Fatalf("failed to ResolveUnixAddr: %v", err)
+	}
+	ln, err := net.ListenUnix("unix", addr)
+	if err != nil {
+		log.Fatalf("failed to ListenUnix: %v", err)
+	}
+
 	svr := easyRpc.NewServer()
 
 	// register router
@@ -17,5 +27,5 @@ func main() {
 		log.Printf("/echo: \"%v\", error: %v", str, err)
 	})
 
-	svr.Run(":8888")
+	svr.Serve(ln)
 }

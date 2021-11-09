@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -32,14 +33,22 @@ func OnClientHello(ctx *easyRpc.Context) {
 	log.Printf("OnClientHello: \"%v\"", req.Msg)
 
 	rsp.Msg = req.Msg
-	go ctx.Clone().Write(rsp)
+	ctx.Write(rsp)
+}
+
+// OnClientWantError .
+func OnClientWantError(ctx *easyRpc.Context) {
+	str := ""
+	ctx.Bind(&str)
+	log.Printf("OnClientWantError: \"%v\"", str)
+	ctx.Write(errors.New("error from server"))
 }
 
 // OnClientNotify .
 func OnClientNotify(ctx *easyRpc.Context) {
 	str := ""
-	ctx.Bind(&str)
-	log.Printf("OnClientNotify: \"%v\"", str)
+	err := ctx.Bind(&str)
+	log.Printf("OnClientNotify: \"%v\", %v", str, err)
 }
 
 // OnClientCallAsync .
@@ -71,7 +80,7 @@ func OnClientCallAsync(ctx *easyRpc.Context) {
 	go func() {
 		for i := 0; true; i++ {
 			time.Sleep(time.Second * 2)
-			msg := easyRpc.NewRefMessage(client.Codec, "ServerNotifyRefMessage", fmt.Sprintf("ServerNotifyRefMessage %v", i))
+			msg := easyRpc.NewRefMessage(easyRpc.CmdNotify, client.Codec, "ServerNotifyRefMessage", fmt.Sprintf("ServerNotifyRefMessage %v", i))
 			client.PushMsg(msg, easyRpc.TimeZero)
 			client.PushMsg(msg, easyRpc.TimeForever)
 			client.PushMsg(msg, time.Second)
@@ -103,10 +112,11 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	svr := easyRpc.NewServer()
-	svr.Handler.Handle("ClientHello", OnClientHello)
-	svr.Handler.Handle("ClientNotify", OnClientNotify)
-	svr.Handler.Handle("ClientCallAsync", OnClientCallAsync)
+	server := easyRpc.NewServer()
+	server.Handler.Handle("ClientHello", OnClientHello)
+	server.Handler.Handle("ClientWantError", OnClientWantError)
+	server.Handler.Handle("ClientNotify", OnClientNotify)
+	server.Handler.Handle("ClientCallAsync", OnClientCallAsync)
 
-	svr.Serve(ln)
+	server.Serve(ln)
 }

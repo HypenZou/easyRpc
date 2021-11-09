@@ -6,7 +6,6 @@ package easyRpc
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -27,27 +26,13 @@ type rpcSession struct {
 	done chan Message
 }
 
-type asyncHandler struct {
-	h RouterFunc
-	t *time.Timer
-}
+// type asyncHandler struct {
+// 	h HandlerFunc
+// 	t *time.Timer
+// }
 
 // Client defines rpc client struct
 type Client struct {
-	mux sync.RWMutex
-
-	running      bool
-	reconnecting bool
-	chSend       chan Message
-
-	seq             uint64
-	sessionMap      map[uint64]*rpcSession
-	asyncHandlerMap map[uint64]*asyncHandler
-
-	onStop         func() int64
-	onConnected    func(*Client)
-	onDisConnected func(*Client)
-
 	Conn    net.Conn
 	Reader  io.Reader
 	head    [HeadLen]byte
@@ -55,6 +40,20 @@ type Client struct {
 	Codec   Codec
 	Handler Handler
 	Dialer  func() (net.Conn, error)
+
+	running      bool
+	reconnecting bool
+
+	mux             sync.RWMutex
+	seq             uint64
+	sessionMap      map[uint64]*rpcSession
+	asyncHandlerMap map[uint64]HandlerFunc
+
+	chSend chan Message
+
+	onStop         func() int64
+	onConnected    func(*Client)
+	onDisConnected func(*Client)
 }
 
 // OnConnected registers callback on connected
@@ -111,7 +110,7 @@ func (c *Client) Call(method string, req interface{}, rsp interface{}, timeout t
 
 	timer := time.NewTimer(timeout)
 
-	msg := c.newReqMessage(method, req, 0)
+	msg := c.newReqMessage(CmdRequest, method, req, 0)
 
 	seq := msg.Seq()
 	sess := sessionGet(seq)
@@ -139,92 +138,35 @@ func (c *Client) Call(method string, req interface{}, rsp interface{}, timeout t
 	}
 
 	switch msg.Cmd() {
-	case RPCCmdRsp:
+	case CmdResponse:
+		if msg.IsError() {
+			return msg.Error()
+		}
 		switch vt := rsp.(type) {
 		case *string:
 			*vt = string(msg[HeadLen:])
 		case *[]byte:
 			*vt = msg[HeadLen:]
-		case *error:
-			*vt = errors.New(bytesToStr(msg[HeadLen:]))
+		// case *error:
+		// 	*vt = msg.Error()
 		default:
 			return c.Codec.Unmarshal(msg[HeadLen:], rsp)
 		}
-	case RPCCmdErr:
-		return errors.New(string(msg[HeadLen:]))
 	default:
+		return ErrInvalidRspMessage
 	}
 
 	return nil
 }
 
 // CallAsync make async rpc call
-func (c *Client) CallAsync(method string, req interface{}, h RouterFunc, timeout time.Duration) error {
-	if !c.running {
-		return ErrClientStopped
-	}
-	if c.reconnecting {
-		return ErrClientReconnecting
-	}
-	if timeout < 0 {
-		return fmt.Errorf("invalid timeout arg: %v", timeout)
-	}
-
-	var (
-		msg     = c.newReqMessage(method, req, 1)
-		seq     = msg.Seq()
-		handler *asyncHandler
-	)
-
-	if h != nil {
-		handler = asyncHandlerGet(h)
-		c.addAsyncHandler(seq, handler)
-	}
-
-	switch timeout {
-	// should not block forever
-	// case TimeForever:
-	// 	c.chSend <- msg
-	// 	msg.Retain()
-	case TimeZero:
-		select {
-		case c.chSend <- msg:
-			msg.Retain()
-			if h != nil {
-				handler.t = time.AfterFunc(time.Second*10, func() {
-					c.deleteAsyncHandler(seq)
-				})
-			}
-		default:
-			msg.Release()
-			c.deleteAsyncHandler(seq)
-			return ErrClientQueueIsFull
-		}
-	default:
-		timer := time.NewTimer(timeout)
-		defer timer.Stop()
-		select {
-		case c.chSend <- msg:
-			msg.Retain()
-			if h != nil {
-				// timeout * 2: [push to send queue] + [recv response]
-				handler.t = time.AfterFunc(timeout, func() {
-					c.deleteAsyncHandler(seq)
-				})
-			}
-		case <-timer.C:
-			msg.Release()
-			c.deleteAsyncHandler(seq)
-			return ErrClientTimeout
-		}
-	}
-
-	return nil
+func (c *Client) CallAsync(method string, req interface{}, handler HandlerFunc, timeout time.Duration) error {
+	return c.callAsync(CmdRequest, method, req, handler, timeout)
 }
 
 // Notify make rpc notify
 func (c *Client) Notify(method string, data interface{}, timeout time.Duration) error {
-	return c.CallAsync(method, data, nil, timeout)
+	return c.callAsync(CmdNotify, method, data, nil, timeout)
 }
 
 // PushMsg push msg to client's send queue
@@ -240,9 +182,6 @@ func (c *Client) PushMsg(msg Message, timeout time.Duration) error {
 	}
 
 	switch timeout {
-	// case TimeForever:
-	// 	c.chSend <- msg
-	// 	msg.Retain()
 	case TimeZero:
 		select {
 		case c.chSend <- msg:
@@ -257,6 +196,56 @@ func (c *Client) PushMsg(msg Message, timeout time.Duration) error {
 		case c.chSend <- msg:
 			msg.Retain()
 		case <-timer.C:
+			return ErrClientTimeout
+		}
+	}
+
+	return nil
+}
+
+func (c *Client) callAsync(cmd byte, method string, req interface{}, handler HandlerFunc, timeout time.Duration) error {
+	if !c.running {
+		return ErrClientStopped
+	}
+	if c.reconnecting {
+		return ErrClientReconnecting
+	}
+	if timeout < 0 {
+		return fmt.Errorf("invalid timeout arg: %v", timeout)
+	}
+
+	var (
+		msg = c.newReqMessage(cmd, method, req, 1)
+		seq = msg.Seq()
+	)
+
+	if handler != nil {
+		c.addAsyncHandler(seq, handler)
+	}
+
+	switch timeout {
+	case TimeZero:
+		select {
+		case c.chSend <- msg:
+			msg.Retain()
+		default:
+			msg.Release()
+			if handler != nil {
+				c.deleteAsyncHandler(seq)
+			}
+			return ErrClientQueueIsFull
+		}
+	default:
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		select {
+		case c.chSend <- msg:
+			msg.Retain()
+		case <-timer.C:
+			msg.Release()
+			if handler != nil {
+				c.deleteAsyncHandler(seq)
+			}
 			return ErrClientTimeout
 		}
 	}
@@ -283,7 +272,7 @@ func (c *Client) deleteSession(seq uint64) {
 	c.mux.Unlock()
 }
 
-func (c *Client) addAsyncHandler(seq uint64, h *asyncHandler) {
+func (c *Client) addAsyncHandler(seq uint64, h HandlerFunc) {
 	c.mux.Lock()
 	c.asyncHandlerMap[seq] = h
 	c.mux.Unlock()
@@ -291,25 +280,16 @@ func (c *Client) addAsyncHandler(seq uint64, h *asyncHandler) {
 
 func (c *Client) deleteAsyncHandler(seq uint64) {
 	c.mux.Lock()
-	handler, ok := c.asyncHandlerMap[seq]
-	if ok {
-		delete(c.asyncHandlerMap, seq)
-		c.mux.Unlock()
-		handler.t.Stop()
-		asyncHandlerPut(handler)
-	} else {
-		c.mux.Unlock()
-	}
+	delete(c.asyncHandlerMap, seq)
+	c.mux.Unlock()
 }
 
-func (c *Client) getAndDeleteAsyncHandler(seq uint64) (*asyncHandler, bool) {
+func (c *Client) getAndDeleteAsyncHandler(seq uint64) (HandlerFunc, bool) {
 	c.mux.Lock()
 	handler, ok := c.asyncHandlerMap[seq]
 	if ok {
 		delete(c.asyncHandlerMap, seq)
 		c.mux.Unlock()
-		handler.t.Stop()
-		asyncHandlerPut(handler)
 	} else {
 		c.mux.Unlock()
 	}
@@ -319,11 +299,7 @@ func (c *Client) getAndDeleteAsyncHandler(seq uint64) (*asyncHandler, bool) {
 
 func (c *Client) clearAsyncHandler() {
 	c.mux.Lock()
-	for _, handler := range c.asyncHandlerMap {
-		handler.t.Stop()
-		asyncHandlerPut(handler)
-	}
-	c.asyncHandlerMap = make(map[uint64]*asyncHandler)
+	c.asyncHandlerMap = make(map[uint64]HandlerFunc)
 	c.mux.Unlock()
 }
 
@@ -334,26 +310,34 @@ func (c *Client) recvLoop() {
 		addr = c.Conn.RemoteAddr()
 	)
 
+	if c.Handler.BatchRecv() {
+		c.Reader = c.Handler.WrapReader(c.Conn)
+	} else {
+		c.Reader = c.Conn
+	}
+
 	if c.Dialer == nil {
-		// DefaultLogger.Info("[easyRpc SVR] Client\t%v\trecvLoop start", c.Conn.RemoteAddr())
-		// defer DefaultLogger.Info("[easyRpc SVR] Client\t%v\trecvLoop stop", c.Conn.RemoteAddr())
+		// logInfo("%v Client\t%v\trecvLoop start", c.Handler.LogTag(), c.Conn.RemoteAddr())
+		// defer logInfo("%v Client\t%v\trecvLoop stop", c.Handler.LogTag(), c.Conn.RemoteAddr())
+
 		for c.running {
 			msg, err = c.Handler.Recv(c)
 			if err != nil {
-				DefaultLogger.Info("[easyRpc SVR] Client\t%v\tDisconnected: %v", addr, err)
+				logInfo("%v\t%v\tDisconnected: %v", c.Handler.LogTag(), addr, err)
 				c.Stop()
 				return
 			}
 			c.Handler.OnMessage(c, msg)
 		}
 	} else {
-		// DefaultLogger.Info("[easyRpc CLI]\t%v\trecvLoop start", c.Conn.RemoteAddr())
-		// defer DefaultLogger.Info("[easyRpc CLI]\t%v\trecvLoop stop", c.Conn.RemoteAddr())
+		// logInfo("%v\t%v\trecvLoop start", c.Handler.LogTag(), c.Conn.RemoteAddr())
+		// defer logInfo("%v\t%v\trecvLoop stop", c.Handler.LogTag(), c.Conn.RemoteAddr())
+
 		for c.running {
 			for {
 				msg, err = c.Handler.Recv(c)
 				if err != nil {
-					DefaultLogger.Info("[easyRpc CLI]\t%v\tDisconnected: %v", addr, err)
+					logInfo("%v\t%v\tDisconnected: %v", c.Handler.LogTag(), addr, err)
 					break
 				}
 				c.Handler.OnMessage(c, msg)
@@ -364,11 +348,17 @@ func (c *Client) recvLoop() {
 			c.Conn = nil
 
 			for c.running {
-				DefaultLogger.Info("[easyRpc CLI]\t%v\tReconnecting ...", addr)
+				logInfo("%v\t%v\tReconnecting ...", c.Handler.LogTag(), addr)
 				c.Conn, err = c.Dialer()
 				if err == nil {
-					DefaultLogger.Info("[easyRpc CLI]\t%v\tConnected", addr)
-					c.Reader = c.Handler.WrapReader(c.Conn)
+					logInfo("%v\t%v\tReconnected", c.Handler.LogTag(), addr)
+					if c.Handler.BatchRecv() {
+						c.Reader = c.Handler.WrapReader(c.Conn)
+					} else {
+						c.Reader = c.Conn
+					}
+
+					c.clearAsyncHandler()
 
 					c.reconnecting = false
 
@@ -390,82 +380,62 @@ func (c *Client) recvLoop() {
 
 func (c *Client) sendLoop() {
 	// if c.Dialer == nil {
-	// 	DefaultLogger.Info("[easyRpc SVR] Client\t%v\tsendLoop start", c.Conn.RemoteAddr())
-	// 	defer DefaultLogger.Info("[easyRpc SVR] Client\t%v\tsendLoop stop", c.Conn.RemoteAddr())
+	// 	logInfo("%v Client\t%v\tsendLoop start", c.Handler.LogTag(), c.Conn.RemoteAddr())
+	// 	defer logInfo("%v Client\t%v\tsendLoop stop", c.Conn.RemoteAddr())
 	// } else {
-	// 	DefaultLogger.Info("[easyRpc CLI]\t%v\tsendLoop start", c.Conn.RemoteAddr())
-	// 	defer DefaultLogger.Info("[easyRpc CLI]\t%v\tsendLoop stop", c.Conn.RemoteAddr())
+	// 	logInfo("%v\t%v\tsendLoop start", c.Handler.LogTag(), c.Conn.RemoteAddr())
+	// 	defer logInfo("%v\t%v\tsendLoop stop", c.Handler.LogTag(), c.Conn.RemoteAddr())
 	// }
 
-	var i int
-	var conn net.Conn
-	var buffers net.Buffers = make([][]byte, 10)
-	var messages = make([]Message, 10)
-	for msg := range c.chSend {
-		conn = c.Conn
-		if !c.reconnecting {
-			buffers[0] = msg.Payload()
-			messages[0] = msg
-			for i = 1; i < 10; i++ {
+	if !c.Handler.BatchSend() {
+		var conn net.Conn
+		for msg := range c.chSend {
+			conn = c.Conn
+			if !c.reconnecting {
+				c.Handler.Send(conn, msg)
+				msg.Release()
+			} else {
+				msg.Release()
+			}
+		}
+	} else {
+		var conn net.Conn
+		var buffers net.Buffers = make([][]byte, 10)[0:0]
+		var messages = make([]Message, 10)[0:0]
+		for msg := range c.chSend {
+			buffers = append(buffers, msg.Real())
+			messages = append(messages, msg)
+			for i := 1; i < 10; i++ {
 				select {
 				case msg = <-c.chSend:
-					buffers[i] = msg.Payload()
-					messages[i] = msg
+					buffers = append(buffers, msg.Real())
+					messages = append(messages, msg)
 				default:
 					goto SEND
 				}
 			}
 		SEND:
-			if i == 1 {
-				c.Handler.Send(conn, msg.Payload())
-				msg.Release()
-			} else {
-				c.Handler.SendN(conn, buffers[:i])
-				for ; i > 0; i-- {
-					messages[i-1].Release()
+			conn = c.Conn
+			if !c.reconnecting {
+				if len(buffers) == 1 {
+					c.Handler.Send(conn, buffers[0])
+					msg.Release()
+				} else {
+					c.Handler.SendN(conn, buffers)
+					for _, v := range messages {
+						v.Release()
+					}
 				}
+				buffers = buffers[0:0]
+				messages = messages[0:0]
+			} else {
+				msg.Release()
 			}
-		} else {
-			msg.Release()
 		}
-
-		// var i int
-		// var conn net.Conn
-		// var buffers net.Buffers = make([][]byte, 10)[0:0]
-		// var messages = make([]Message, 10)[0:0]
-		// for msg := range c.chSend {
-		// 	conn = c.Conn
-		// 	if !c.reconnecting {
-		// 		buffers = append(buffers, msg.Payload())
-		// 		messages = append(messages, msg)
-		// 		for i = 1; i < 10; i++ {
-		// 			select {
-		// 			case msg = <-c.chSend:
-		// 				buffers = append(buffers, msg.Payload())
-		// 				messages = append(messages, msg)
-		// 			default:
-		// 				goto SEND
-		// 			}
-		// 		}
-		// 	SEND:
-		// 		if len(buffers) == 1 {
-		// 			c.Handler.Send(conn, buffers[0])
-		// 			msg.Release()
-		// 		} else {
-		// 			c.Handler.SendN(conn, buffers)
-		// 			for _, v := range messages {
-		// 				v.Release()
-		// 			}
-		// 		}
-		// 		buffers = buffers[0:0]
-		// 		messages = messages[0:0]
-		// 	} else {
-		// 		msg.Release()
-		// 	}
 	}
 }
 
-func (c *Client) newReqMessage(method string, req interface{}, async byte) Message {
+func (c *Client) newReqMessage(cmd byte, method string, req interface{}, async byte) Message {
 	var (
 		data    []byte
 		msg     Message
@@ -480,8 +450,9 @@ func (c *Client) newReqMessage(method string, req interface{}, async byte) Messa
 	binary.LittleEndian.PutUint32(msg[headerIndexBodyLenBegin:headerIndexBodyLenEnd], uint32(bodyLen))
 	binary.LittleEndian.PutUint64(msg[headerIndexSeqBegin:headerIndexSeqEnd], atomic.AddUint64(&c.seq, 1))
 
-	msg[headerIndexCmd] = RPCCmdReq
+	msg[headerIndexCmd] = cmd
 	msg[headerIndexAsync] = async
+	msg[headerIndexError] = 0
 	msg[headerIndexMethodLen] = byte(len(method))
 	copy(msg[HeadLen:HeadLen+len(method)], method)
 	copy(msg[HeadLen+len(method):], data)
@@ -491,19 +462,23 @@ func (c *Client) newReqMessage(method string, req interface{}, async byte) Messa
 
 // newClientWithConn factory
 func newClientWithConn(conn net.Conn, codec Codec, handler Handler, onStop func() int64) *Client {
-	DefaultLogger.Info("[easyRpc SVR]\t%v\tConnected", conn.RemoteAddr())
+	logInfo("%v\t%v\tConnected", handler.LogTag(), conn.RemoteAddr())
 
-	client := &Client{}
-	client.Conn = conn
-	client.Reader = handler.WrapReader(conn)
-	client.Head = Header(client.head[:])
-	client.Codec = codec
-	client.Handler = handler
-	client.sessionMap = make(map[uint64]*rpcSession)
-	client.asyncHandlerMap = make(map[uint64]*asyncHandler)
-	client.onStop = onStop
+	c := &Client{}
+	c.Conn = conn
+	if handler.BatchRecv() {
+		c.Reader = handler.WrapReader(conn)
+	} else {
+		c.Reader = conn
+	}
+	c.Head = Header(c.head[:])
+	c.Codec = codec
+	c.Handler = handler
+	c.sessionMap = make(map[uint64]*rpcSession)
+	c.asyncHandlerMap = make(map[uint64]HandlerFunc)
+	c.onStop = onStop
 
-	return client
+	return c
 }
 
 // NewClient factory
@@ -513,17 +488,17 @@ func NewClient(dialer func() (net.Conn, error)) (*Client, error) {
 		return nil, err
 	}
 
-	DefaultLogger.Info("[easyRpc CLI]\t%v\tConnected", conn.RemoteAddr())
+	c := &Client{}
+	c.Conn = conn
+	c.Reader = DefaultHandler.WrapReader(conn)
+	c.Head = Header(c.head[:])
+	c.Codec = DefaultCodec
+	c.Handler = DefaultHandler
+	c.Dialer = dialer
+	c.sessionMap = make(map[uint64]*rpcSession)
+	c.asyncHandlerMap = make(map[uint64]HandlerFunc)
 
-	client := &Client{}
-	client.Conn = conn
-	client.Reader = DefaultHandler.WrapReader(conn)
-	client.Head = Header(client.head[:])
-	client.Codec = DefaultCodec
-	client.Handler = DefaultHandler.Clone()
-	client.Dialer = dialer
-	client.sessionMap = make(map[uint64]*rpcSession)
-	client.asyncHandlerMap = make(map[uint64]*asyncHandler)
+	logInfo("%v\t%v\tConnected", c.Handler.LogTag(), conn.RemoteAddr())
 
-	return client, nil
+	return c, nil
 }
