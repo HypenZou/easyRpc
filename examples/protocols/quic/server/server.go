@@ -10,11 +10,11 @@ import (
 	"math/big"
 
 	"github.com/wubbalubbaaa/easyRpc"
-	"github.com/wubbalubbaaa/easyRpcext"
+	"github.com/wubbalubbaaa/easyRpcext/quic"
 )
 
 func main() {
-	ln, err := easyRpcext.ListenQuic(":8888", generateTLSConfig())
+	ln, err := quic.Listen(":8888", generateTLSConfig())
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}

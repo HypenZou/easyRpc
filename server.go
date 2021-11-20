@@ -5,6 +5,7 @@
 package easyRpc
 
 import (
+	"context"
 	"net"
 	"sync/atomic"
 	"time"
@@ -70,7 +71,7 @@ func (s *Server) runLoop() error {
 				logError("%v Accept error: %v; retrying in %v", s.Handler.LogTag(), err, tempDelay)
 				time.Sleep(tempDelay)
 			} else {
-				logError("%v Accept error:", s.Handler.LogTag(), err)
+				logError("%v Accept error: %v", s.Handler.LogTag(), err)
 				break
 			}
 		}
@@ -98,19 +99,34 @@ func (s *Server) Run(addr string) error {
 	s.Listener = ln
 	s.chStop = make(chan error)
 	logInfo("%v Running On: \"%v\"", s.Handler.LogTag(), ln.Addr())
-	defer logInfo("%v Stopped", s.Handler.LogTag())
+	// defer logInfo("%v Stopped", s.Handler.LogTag())
 	return s.runLoop()
 }
 
-// Shutdown stop rpc service
-func (s *Server) Shutdown(timeout time.Duration) error {
-	logInfo("%v %v Shutdown...", s.Handler.LogTag(), s.Listener.Addr())
-	defer logInfo("%v %v Shutdown done", s.Handler.LogTag(), s.Listener.Addr())
+// Stop rpc service
+func (s *Server) Stop() error {
+	// logInfo("%v %v Stop...", s.Handler.LogTag(), s.Listener.Addr())
+	defer logInfo("%v %v Stop", s.Handler.LogTag(), s.Listener.Addr())
 	s.running = false
 	s.Listener.Close()
 	select {
 	case <-s.chStop:
-	case <-time.After(timeout):
+	default:
+	case <-time.After(time.Second):
+		return ErrTimeout
+	}
+	return nil
+}
+
+// Shutdown stop rpc service
+func (s *Server) Shutdown(ctx context.Context) error {
+	// logInfo("%v %v Shutdown...", s.Handler.LogTag(), s.Listener.Addr())
+	defer logInfo("%v %v Shutdown", s.Handler.LogTag(), s.Listener.Addr())
+	s.running = false
+	s.Listener.Close()
+	select {
+	case <-s.chStop:
+	case <-ctx.Done():
 		return ErrTimeout
 	}
 	return nil

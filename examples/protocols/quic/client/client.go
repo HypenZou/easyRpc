@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/wubbalubbaaa/easyRpc"
-	"github.com/wubbalubbaaa/easyRpcext"
+	"github.com/wubbalubbaaa/easyRpcext/quic"
 )
 
 func main() {
@@ -16,7 +16,7 @@ func main() {
 			InsecureSkipVerify: true,
 			NextProtos:         []string{"quic-echo-example"},
 		}
-		return easyRpcext.DialQuic("localhost:8888", tlsConf, nil, 0)
+		return quic.Dial("localhost:8888", tlsConf, nil, 0)
 	})
 	if err != nil {
 		panic(err)

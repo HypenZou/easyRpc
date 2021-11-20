@@ -5,6 +5,7 @@
 package easyRpc
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -26,10 +27,9 @@ type rpcSession struct {
 	done chan Message
 }
 
-// type asyncHandler struct {
-// 	h HandlerFunc
-// 	t *time.Timer
-// }
+func newSession(seq uint64) *rpcSession {
+	return &rpcSession{seq: seq, done: make(chan Message, 1)}
+}
 
 // Client defines rpc client struct
 type Client struct {
@@ -61,14 +61,9 @@ func (c *Client) Run() {
 	defer c.mux.Unlock()
 	if !c.running {
 		c.running = true
-		c.chSend = make(chan Message, c.Handler.SendQueueSize())
-		if c.Handler.BatchRecv() {
-			c.Reader = c.Handler.WrapReader(c.Conn)
-		} else {
-			c.Reader = c.Conn
-		}
-		go c.sendLoop()
-		go c.recvLoop()
+		c.initReader()
+		go safe(c.sendLoop)
+		go safe(c.recvLoop)
 	}
 }
 
@@ -90,7 +85,7 @@ func (c *Client) Stop() {
 	}
 }
 
-// Call make rpc call
+// Call make rpc call with timeout
 func (c *Client) Call(method string, req interface{}, rsp interface{}, timeout time.Duration) error {
 	if !c.running {
 		return ErrClientStopped
@@ -107,13 +102,12 @@ func (c *Client) Call(method string, req interface{}, rsp interface{}, timeout t
 	msg := c.newReqMessage(CmdRequest, method, req, 0)
 
 	seq := msg.Seq()
-	sess := sessionGet(seq)
+	sess := newSession(seq)
 	c.addSession(seq, sess)
 	defer func() {
 		timer.Stop()
 		c.mux.Lock()
 		delete(c.sessionMap, seq)
-		sessionPut(sess)
 		c.mux.Unlock()
 	}()
 
@@ -127,7 +121,6 @@ func (c *Client) Call(method string, req interface{}, rsp interface{}, timeout t
 	select {
 	// response msg
 	case msg = <-sess.done:
-		defer memPut(msg)
 	case <-timer.C:
 		return ErrClientTimeout
 	}
@@ -156,14 +149,82 @@ func (c *Client) Call(method string, req interface{}, rsp interface{}, timeout t
 	return nil
 }
 
-// CallAsync make async rpc call
+// Call make rpc call with context
+func (c *Client) CallWith(ctx context.Context, method string, req interface{}, rsp interface{}) error {
+	if !c.running {
+		return ErrClientStopped
+	}
+	if c.reconnecting {
+		return ErrClientReconnecting
+	}
+
+	msg := c.newReqMessage(CmdRequest, method, req, 0)
+
+	seq := msg.Seq()
+	sess := newSession(seq)
+	c.addSession(seq, sess)
+	defer func() {
+		c.mux.Lock()
+		delete(c.sessionMap, seq)
+		c.mux.Unlock()
+	}()
+
+	select {
+	case c.chSend <- msg:
+	case <-ctx.Done():
+		c.Handler.OnOverstock(c, msg)
+		return ErrClientTimeout
+	}
+
+	select {
+	// response msg
+	case msg = <-sess.done:
+	case <-ctx.Done():
+		return ErrClientTimeout
+	}
+
+	switch msg.Cmd() {
+	case CmdResponse:
+		if msg.IsError() {
+			return msg.Error()
+		}
+		if rsp != nil {
+			switch vt := rsp.(type) {
+			case *string:
+				*vt = string(msg[HeadLen:])
+			case *[]byte:
+				*vt = msg[HeadLen:]
+			// case *error:
+			// 	*vt = msg.Error()
+			default:
+				return c.Codec.Unmarshal(msg[HeadLen:], rsp)
+			}
+		}
+	default:
+		return ErrInvalidRspMessage
+	}
+
+	return nil
+}
+
+// CallAsync make async rpc call with timeout
 func (c *Client) CallAsync(method string, req interface{}, handler HandlerFunc, timeout time.Duration) error {
 	return c.callAsync(CmdRequest, method, req, handler, timeout)
 }
 
-// Notify make rpc notify
+// CallAsyncWith make async rpc call with context
+func (c *Client) CallAsyncWith(ctx context.Context, method string, req interface{}, handler HandlerFunc) error {
+	return c.callAsyncWith(ctx, CmdRequest, method, req, handler)
+}
+
+// Notify make rpc notify with timeout
 func (c *Client) Notify(method string, data interface{}, timeout time.Duration) error {
 	return c.callAsync(CmdNotify, method, data, nil, timeout)
+}
+
+// Notify make rpc notify with context
+func (c *Client) NotifyWith(ctx context.Context, method string, data interface{}) error {
+	return c.callAsyncWith(ctx, CmdNotify, method, data, nil)
 }
 
 // PushMsg push msg to client's send queue
@@ -182,7 +243,6 @@ func (c *Client) PushMsg(msg Message, timeout time.Duration) error {
 	case TimeZero:
 		select {
 		case c.chSend <- msg:
-			msg.Retain()
 		default:
 			c.Handler.OnOverstock(c, msg)
 			return ErrClientOverstock
@@ -192,7 +252,6 @@ func (c *Client) PushMsg(msg Message, timeout time.Duration) error {
 		defer timer.Stop()
 		select {
 		case c.chSend <- msg:
-			msg.Retain()
 		case <-timer.C:
 			c.Handler.OnOverstock(c, msg)
 			return ErrClientTimeout
@@ -226,10 +285,8 @@ func (c *Client) callAsync(cmd byte, method string, req interface{}, handler Han
 	case TimeZero:
 		select {
 		case c.chSend <- msg:
-			msg.Retain()
 		default:
 			c.Handler.OnOverstock(c, msg)
-			msg.Release()
 			if handler != nil {
 				c.deleteAsyncHandler(seq)
 			}
@@ -240,15 +297,43 @@ func (c *Client) callAsync(cmd byte, method string, req interface{}, handler Han
 		defer timer.Stop()
 		select {
 		case c.chSend <- msg:
-			msg.Retain()
 		case <-timer.C:
 			c.Handler.OnOverstock(c, msg)
-			msg.Release()
 			if handler != nil {
 				c.deleteAsyncHandler(seq)
 			}
 			return ErrClientTimeout
 		}
+	}
+
+	return nil
+}
+
+func (c *Client) callAsyncWith(ctx context.Context, cmd byte, method string, req interface{}, handler HandlerFunc) error {
+	if !c.running {
+		return ErrClientStopped
+	}
+	if c.reconnecting {
+		return ErrClientReconnecting
+	}
+
+	var (
+		msg = c.newReqMessage(cmd, method, req, 1)
+		seq = msg.Seq()
+	)
+
+	if handler != nil {
+		c.addAsyncHandler(seq, handler)
+	}
+
+	select {
+	case c.chSend <- msg:
+	case <-ctx.Done():
+		c.Handler.OnOverstock(c, msg)
+		if handler != nil {
+			c.deleteAsyncHandler(seq)
+		}
+		return ErrClientTimeout
 	}
 
 	return nil
@@ -304,23 +389,25 @@ func (c *Client) clearAsyncHandler() {
 	c.mux.Unlock()
 }
 
-func (c *Client) recvLoop() {
-	var (
-		err  error
-		msg  Message
-		addr = c.Conn.RemoteAddr()
-	)
-
+func (c *Client) initReader() {
 	if c.Handler.BatchRecv() {
 		c.Reader = c.Handler.WrapReader(c.Conn)
 	} else {
 		c.Reader = c.Conn
 	}
+}
+
+func (c *Client) recvLoop() {
+	var (
+		err  error
+		msg  Message
+		addr = c.Conn.RemoteAddr().String()
+	)
+
+	logDebug("%v\t%v\trecvLoop start", c.Handler.LogTag(), addr)
+	defer logDebug("%v\t%v\trecvLoop stop", c.Handler.LogTag(), addr)
 
 	if c.Dialer == nil {
-		// logInfo("%v Client\t%v\trecvLoop start", c.Handler.LogTag(), c.Conn.RemoteAddr())
-		// defer logInfo("%v Client\t%v\trecvLoop stop", c.Handler.LogTag(), c.Conn.RemoteAddr())
-
 		for c.running {
 			msg, err = c.Handler.Recv(c)
 			if err != nil {
@@ -331,8 +418,7 @@ func (c *Client) recvLoop() {
 			c.Handler.OnMessage(c, msg)
 		}
 	} else {
-		// logInfo("%v\t%v\trecvLoop start", c.Handler.LogTag(), c.Conn.RemoteAddr())
-		// defer logInfo("%v\t%v\trecvLoop stop", c.Handler.LogTag(), c.Conn.RemoteAddr())
+		go c.Handler.OnConnected(c)
 
 		for c.running {
 			for {
@@ -346,24 +432,22 @@ func (c *Client) recvLoop() {
 
 			c.reconnecting = true
 			c.Conn.Close()
-			c.Conn = nil
 
 			for c.running {
 				logInfo("%v\t%v\tReconnecting ...", c.Handler.LogTag(), addr)
-				c.Conn, err = c.Dialer()
+				conn, err := c.Dialer()
 				if err == nil {
-					logInfo("%v\t%v\tReconnected", c.Handler.LogTag(), addr)
-					if c.Handler.BatchRecv() {
-						c.Reader = c.Handler.WrapReader(c.Conn)
-					} else {
-						c.Reader = c.Conn
-					}
+					c.Conn = conn
+
+					c.initReader()
 
 					c.clearAsyncHandler()
 
 					c.reconnecting = false
 
-					c.Handler.OnConnected(c)
+					logInfo("%v\t%v\tReconnected", c.Handler.LogTag(), addr)
+
+					go c.Handler.OnConnected(c)
 
 					break
 				}
@@ -376,37 +460,29 @@ func (c *Client) recvLoop() {
 }
 
 func (c *Client) sendLoop() {
-	// if c.Dialer == nil {
-	// 	logInfo("%v Client\t%v\tsendLoop start", c.Handler.LogTag(), c.Conn.RemoteAddr())
-	// 	defer logInfo("%v Client\t%v\tsendLoop stop", c.Conn.RemoteAddr())
-	// } else {
-	// 	logInfo("%v\t%v\tsendLoop start", c.Handler.LogTag(), c.Conn.RemoteAddr())
-	// 	defer logInfo("%v\t%v\tsendLoop stop", c.Handler.LogTag(), c.Conn.RemoteAddr())
-	// }
+	addr := c.Conn.RemoteAddr().String()
+	logDebug("%v\t%v\tsendLoop start", c.Handler.LogTag(), addr)
+	defer logDebug("%v\t%v\tsendLoop stop", c.Handler.LogTag(), addr)
 
 	if !c.Handler.BatchSend() {
 		var conn net.Conn
 		for msg := range c.chSend {
 			conn = c.Conn
 			if !c.reconnecting {
-				c.Handler.Send(conn, msg)
-				msg.Release()
-			} else {
-				msg.Release()
+				if _, err := c.Handler.Send(conn, msg); err != nil {
+					conn.Close()
+				}
 			}
 		}
 	} else {
 		var conn net.Conn
 		var buffers net.Buffers = make([][]byte, 10)[0:0]
-		var messages = make([]Message, 10)[0:0]
 		for msg := range c.chSend {
-			buffers = append(buffers, msg.Real())
-			messages = append(messages, msg)
+			buffers = append(buffers, msg)
 			for i := 1; i < 10; i++ {
 				select {
 				case msg = <-c.chSend:
-					buffers = append(buffers, msg.Real())
-					messages = append(messages, msg)
+					buffers = append(buffers, msg)
 				default:
 					goto SEND
 				}
@@ -415,19 +491,16 @@ func (c *Client) sendLoop() {
 			conn = c.Conn
 			if !c.reconnecting {
 				if len(buffers) == 1 {
-					c.Handler.Send(conn, buffers[0])
-					msg.Release()
+					if _, err := c.Handler.Send(conn, buffers[0]); err != nil {
+						conn.Close()
+					}
 				} else {
-					c.Handler.SendN(conn, buffers)
-					for _, v := range messages {
-						v.Release()
+					if _, err := c.Handler.SendN(conn, buffers); err != nil {
+						conn.Close()
 					}
 				}
-				buffers = buffers[0:0]
-				messages = messages[0:0]
-			} else {
-				msg.Release()
 			}
+			buffers = buffers[0:0]
 		}
 	}
 }
@@ -466,6 +539,7 @@ func newClientWithConn(conn net.Conn, codec Codec, handler Handler, onStop func(
 	c.Head = Header(c.head[:])
 	c.Codec = codec
 	c.Handler = handler
+	c.chSend = make(chan Message, c.Handler.SendQueueSize())
 	c.sessionMap = make(map[uint64]*rpcSession)
 	c.asyncHandlerMap = make(map[uint64]HandlerFunc)
 	c.onStop = onStop
@@ -487,6 +561,7 @@ func NewClient(dialer func() (net.Conn, error)) (*Client, error) {
 	c.Codec = DefaultCodec
 	c.Handler = DefaultHandler
 	c.Dialer = dialer
+	c.chSend = make(chan Message, c.Handler.SendQueueSize())
 	c.sessionMap = make(map[uint64]*rpcSession)
 	c.asyncHandlerMap = make(map[uint64]HandlerFunc)
 

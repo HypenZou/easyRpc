@@ -39,6 +39,10 @@ func safe(call func()) {
 	call()
 }
 
+func memGet(size int) []byte {
+	return make([]byte, size)
+}
+
 func strToBytes(s string) []byte {
 	// return []byte(s)
 	x := (*[2]uintptr)(unsafe.Pointer(&s))
@@ -55,7 +59,6 @@ func valueToBytes(codec Codec, v interface{}) []byte {
 	if v == nil {
 		return nil
 	}
-
 	var (
 		err  error
 		data []byte
@@ -74,6 +77,9 @@ func valueToBytes(codec Codec, v interface{}) []byte {
 	case *error:
 		data = strToBytes((*vt).Error())
 	default:
+		if codec == nil {
+			codec = DefaultCodec
+		}
 		data, err = codec.Marshal(vt)
 		if err != nil {
 			panic(err)
