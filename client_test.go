@@ -5,14 +5,21 @@
 package easyRpc
 
 import (
+	"context"
+	"fmt"
 	"log"
 	"math/rand"
 	"net"
+	"net/http"
 	"testing"
 	"time"
+
+	alog "github.com/wubbalubbaaa/easyRpc/log"
+	"github.com/wubbalubbaaa/easyRpcext/websocket"
 )
 
 var (
+	allAddr   = "localhost:16788"
 	benchAddr = "localhost:16789"
 
 	benchServer *Server
@@ -116,7 +123,7 @@ func Benchmark_Call_Struct_Payload_8192(b *testing.B) {
 }
 
 func init() {
-	SetLogger(nil)
+	alog.SetLogger(nil)
 	benchServer = newBenchServer()
 	benchClient = newBenchClient()
 }
@@ -164,8 +171,9 @@ func newBenchServer() *Server {
 		}
 		ctx.Write(&src)
 	})
+
 	go s.Run(benchAddr)
-	time.Sleep(time.Second)
+	time.Sleep(time.Second / 10)
 	return s
 }
 
@@ -191,7 +199,7 @@ func benchmarkCallBytesPayload(b *testing.B, src []byte) {
 	for i := 0; i < b.N; i++ {
 		var dst []byte
 		if err := benchClient.Call("/echo/bytes", src, &dst, time.Second); err != nil {
-			b.Fatalf("benchClient.Call() bytes error: %v\nsrc: %v\ndst: %v", err, src, dst)
+			b.Fatalf("benchClient.Call() error: %v\nsrc: %v\ndst: %v", err, src, dst)
 		}
 	}
 }
@@ -203,4 +211,275 @@ func benchmarkCallStructPayload(b *testing.B, src *message) {
 			b.Fatalf("benchClient.Call() struct error: %v\nsrc: %v\ndst: %v", err, src, dst)
 		}
 	}
+}
+
+func TestClientPool(t *testing.T) {
+	pool, err := NewClientPool(dialer, 2)
+	if err != nil {
+		log.Fatalf("NewClient() failed: %v", err)
+	}
+	if pool.Size() != 2 {
+		t.Fatalf("invalid pool size: %v", pool.Size())
+	}
+	pool.Handler().Handle("/poolmethod", func(*Context) {})
+	pool.Run()
+	defer pool.Stop()
+
+	var src = "test"
+	var dst []byte
+	if err = pool.Get(1).Call("/echo/bytes", src, &dst, time.Second); err != nil {
+		t.Fatalf("pool.Call() error: %v\nsrc: %v\ndst: %v", err, src, dst)
+	}
+	if err = pool.Next().Call("/echo/bytes", src, &dst, time.Second); err != nil {
+		t.Fatalf("pool.Call() error: %v\nsrc: %v\ndst: %v", err, src, dst)
+	}
+
+	pool2, err := NewClientPoolFromDialers([]DialerFunc{dialer, dialer})
+	if err != nil {
+		t.Fatalf("NewClientPoolFromDialers error: %v", err)
+	}
+	if pool2 != nil {
+		pool2.Stop()
+	}
+
+	pool3, err := NewClientPoolFromDialers([]DialerFunc{})
+	if err == nil {
+		t.Fatalf("NewClientPoolFromDialers with invalid dialer num(<=0) should not be allowed")
+	}
+	if pool3 != nil {
+		pool3.Stop()
+	}
+}
+
+func newSvr() *Server {
+	DefaultHandler = NewHandler()
+	s := NewServer()
+	s.Handler = s.Handler.Clone()
+	s.Handler.Handle("/call", func(ctx *Context) {
+		src := ""
+		err := ctx.Bind(&src)
+		if err != nil {
+			log.Fatalf("Bind failed: %v", err)
+		}
+		ctx.Write(src)
+		ctx.Done()
+	})
+	s.Handler.Handle("/callasync", func(ctx *Context) {
+		src := ""
+		err := ctx.Bind(&src)
+		if err != nil {
+			log.Fatalf("Bind failed: %v", err)
+		}
+		ctx.Write(src)
+	}, true)
+	s.Handler.Handle("/notify", func(ctx *Context) {
+		src := ""
+		err := ctx.Bind(&src)
+		if err != nil {
+			log.Fatalf("Bind failed: %v", err)
+		}
+		ctx.Write(src)
+	})
+	s.Handler.Handle("/timeout", func(ctx *Context) {
+		src := ""
+		err := ctx.Bind(&src)
+		if err != nil {
+			log.Fatalf("Bind failed: %v", err)
+		}
+		time.Sleep(time.Second / 10)
+		ctx.Write(src)
+	})
+	s.Handler.Handle("/overstock", func(ctx *Context) {
+		src := ""
+		err := ctx.Bind(&src)
+		if err != nil {
+			log.Fatalf("Bind failed: %v", err)
+		}
+		ctx.Write(src)
+	})
+	s.Handler.Handle("/error", func(ctx *Context) {
+		ctx.Error(fmt.Errorf("invlaid router"))
+	})
+	go s.Run(allAddr)
+	return s
+}
+
+func TestWebsocket(t *testing.T) {
+	ln, _ := websocket.NewListener(":25341", nil)
+	defer ln.Close()
+	http.HandleFunc("/ws", ln.(*websocket.Listener).Handler)
+	go func() {
+		err := http.ListenAndServe(":25341", nil)
+		if err != nil {
+			t.Fatal("ListenAndServe: ", err)
+		}
+	}()
+
+	svr := NewServer()
+	svr.Handler.SetBatchRecv(false)
+	// register router
+	svr.Handler.Handle("/echo", func(ctx *Context) {
+		str := ""
+		ctx.Bind(&str)
+		ctx.Write(str)
+	})
+	svr.Handler.Clone()
+	svr.Handler.BeforeRecv(func(net.Conn) error { return nil })
+	svr.Handler.BeforeSend(func(net.Conn) error { return nil })
+	svr.Handler.SetBufferFactory(func(size int) []byte { return make([]byte, size) })
+	go svr.Serve(ln)
+
+	time.Sleep(time.Second / 100)
+
+	client, err := NewClient(func() (net.Conn, error) {
+		return websocket.Dial("ws://localhost:25341/ws")
+	})
+	if err != nil {
+		panic(err)
+	}
+	client.Handler.SetBatchRecv(false)
+
+	client.Run()
+	defer client.Stop()
+
+	req := "hello"
+	rsp := ""
+	err = client.Call("/echo", &req, &rsp, time.Second*5)
+	if err != nil {
+		t.Fatalf("Call failed: %v", err)
+	}
+}
+
+type testCoder int
+
+func (tc *testCoder) Encode(m Message) Message {
+	return m
+}
+
+func (tc *testCoder) Decode(m Message) Message {
+	return m
+}
+
+func TestClientNormal(t *testing.T) {
+	var src = "test"
+	var dst = ""
+	var dstB []byte
+
+	s := newSvr()
+	defer s.Stop()
+	time.Sleep(time.Second / 100)
+
+	s.Handler.Use(func(ctx *Context) { ctx.Next() })
+	s.Handler.UseCoder(new(testCoder))
+	c, err := NewClient(func() (net.Conn, error) {
+		return net.DialTimeout("tcp", allAddr, time.Second)
+	})
+	if err != nil {
+		t.Fatalf("NewClient() failed: %v", err)
+	}
+	c.Handler.SetBatchSend(false)
+	c.Run()
+	defer c.Stop()
+	if err = c.Call("/error", src, &dstB, time.Second); err == nil {
+		t.Fatalf("Call() '/error' returns nil error")
+	} else if err.Error() != "invlaid router" {
+		t.Fatalf("Call() '/error' returns: %v", err)
+	} else {
+		// t.Logf("Call() '/error' returns: %v", err)
+	}
+	if err = c.Call("/call", src, &dst, time.Second); err != nil {
+		t.Fatalf("Call() error: %v\nsrc: %v\ndst: %v", err, src, dst)
+	}
+	if err = c.Call("/call", src, &dstB, time.Second); err != nil {
+		t.Fatalf("Call() error: %v\nsrc: %v\ndst: %v", err, src, dstB)
+	}
+	if err = c.CallWith(context.Background(), "/call", src, &dst); err != nil {
+		t.Fatalf("CallWith() error: %v\nsrc: %v\ndst: %v", err, src, dst)
+	}
+	if err = c.CallWith(context.Background(), "/call", src, &dstB); err != nil {
+		t.Fatalf("CallWith() error: %v\nsrc: %v\ndst: %v", err, src, dstB)
+	}
+	if err = c.CallAsync("/callasync", src, func(*Context) {}, time.Second); err != nil {
+		t.Fatalf("CallAsync() error: %v\nsrc: %v\ndst: %v", err, src, dst)
+	}
+	// if err = c.CallAsyncWith(context.Background(), "/callasync", src, func(*Context) {}); err != nil {
+	// 	t.Fatalf("Call() error: %v\nsrc: %v\ndst: %v", err, src, dst)
+	// }
+	if err = c.Notify("/notify", src, time.Second); err != nil {
+		t.Fatalf("Notify() error: %v\nsrc: %v\ndst: %v", err, src, dst)
+	}
+	if err = c.NotifyWith(context.Background(), "/notify", src); err != nil {
+		t.Fatalf("NotifyWith() error: %v\nsrc: %v\ndst: %v", err, src, dst)
+	}
+	if err = c.Call("/timeout", src, &dst, time.Second/1000); err != ErrClientTimeout {
+		t.Fatalf("Call() error: %v\nsrc: %v\ndst: %v", err, src, dst)
+	}
+	toCtx, cancel := context.WithTimeout(context.Background(), time.Second/1000)
+	defer cancel()
+	if err = c.CallWith(toCtx, "/timeout", src, &dst); err != ErrClientTimeout {
+		t.Fatalf("CallWith() error: %v\nsrc: %v\ndst: %v", err, src, dst)
+	}
+
+}
+
+func TestClientError(t *testing.T) {
+	var src = "test"
+	var dst = ""
+	var dstB []byte
+
+	s := newSvr()
+	defer s.Stop()
+	time.Sleep(time.Second / 100)
+
+	c, err := NewClient(func() (net.Conn, error) {
+		return net.DialTimeout("tcp", allAddr, time.Second)
+	})
+	if err != nil {
+		log.Fatalf("NewClient() failed: %v", err)
+	}
+
+	if err = c.Call("/call", src, &dst, time.Second); err != ErrClientStopped {
+		t.Fatalf("Call() error: %v\nsrc: %v\ndst: %v", err, src, dst)
+	}
+	if err = c.Call("/call", src, &dstB, time.Second); err != ErrClientStopped {
+		t.Fatalf("Call() error: %v\nsrc: %v\ndst: %v", err, src, dstB)
+	}
+
+	invalidMethd := ""
+	for i := 0; i < 128; i++ {
+		invalidMethd += "a"
+	}
+	if err = c.Call(invalidMethd, src, &dstB, time.Second); err == nil {
+		t.Fatalf("Call() invalid method error is nil")
+	}
+	if err = c.CallWith(context.Background(), invalidMethd, src, &dstB); err == nil {
+		t.Fatalf("CallWith() invalid method error is nil")
+	}
+	if err = c.Notify(invalidMethd, src, time.Second); err == nil {
+		t.Fatalf("Notify() invalid method error is nil")
+	}
+	if err = c.NotifyWith(context.Background(), invalidMethd, src); err == nil {
+		t.Fatalf("NotifyWith() invalid method error is nil")
+	}
+
+	c.Handler.SetSendQueueSize(10)
+
+	c.Run()
+	defer c.Stop()
+
+	c.Conn.Close()
+	time.Sleep(time.Second / 100)
+
+	c.Call("/call", src, &dst, time.Second)
+
+	time.Sleep(time.Second)
+
+	msg := c.NewMessage(CmdRequest, "/overstock", src)
+	for i := 0; i < 10000; i++ {
+		c.PushMsg(msg, 0)
+	}
+	c.Call("/overstock", src, &dst, 1)
+	c.Call("/overstock", src, &dst, 0)
+	c.Call("/nohandler", src, &dst, time.Second/100)
+	c.PushMsg(msg, -1)
 }

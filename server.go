@@ -9,6 +9,9 @@ import (
 	"net"
 	"sync/atomic"
 	"time"
+
+	"github.com/wubbalubbaaa/easyRpc/codec"
+	"github.com/wubbalubbaaa/easyRpc/log"
 )
 
 // Server definition
@@ -17,13 +20,70 @@ type Server struct {
 	CurrLoad int64
 	MaxLoad  int64
 
-	Codec   Codec
+	Codec   codec.Codec
 	Handler Handler
 
 	Listener net.Listener
 
 	running bool
 	chStop  chan error
+}
+
+// Serve starts rpc service with listener
+func (s *Server) Serve(ln net.Listener) error {
+	s.Listener = ln
+	s.chStop = make(chan error)
+	log.Info("%v Running On: \"%v\"", s.Handler.LogTag(), ln.Addr())
+	defer log.Info("%v Stopped", s.Handler.LogTag())
+	return s.runLoop()
+}
+
+// Run starts a tcp service on addr
+func (s *Server) Run(addr string) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Info("%v Running failed: %v", s.Handler.LogTag(), err)
+		return err
+	}
+	s.Listener = ln
+	s.chStop = make(chan error)
+	log.Info("%v Running On: \"%v\"", s.Handler.LogTag(), ln.Addr())
+	// defer log.Info("%v Stopped", s.Handler.LogTag())
+	return s.runLoop()
+}
+
+// Stop rpc service
+func (s *Server) Stop() error {
+	// log.Info("%v %v Stop...", s.Handler.LogTag(), s.Listener.Addr())
+	defer log.Info("%v %v Stop", s.Handler.LogTag(), s.Listener.Addr())
+	s.running = false
+	s.Listener.Close()
+	select {
+	case <-s.chStop:
+	case <-time.After(time.Second):
+		return ErrTimeout
+	default:
+	}
+	return nil
+}
+
+// Shutdown stop rpc service
+func (s *Server) Shutdown(ctx context.Context) error {
+	// log.Info("%v %v Shutdown...", s.Handler.LogTag(), s.Listener.Addr())
+	defer log.Info("%v %v Shutdown", s.Handler.LogTag(), s.Listener.Addr())
+	s.running = false
+	s.Listener.Close()
+	select {
+	case <-s.chStop:
+	case <-ctx.Done():
+		return ErrTimeout
+	}
+	return nil
+}
+
+// NewMessage factory
+func (s *Server) NewMessage(cmd byte, method string, v interface{}) Message {
+	return newMessage(cmd, method, v, s.Handler, s.Codec)
 }
 
 func (s *Server) addLoad() int64 {
@@ -36,10 +96,9 @@ func (s *Server) subLoad() int64 {
 
 func (s *Server) runLoop() error {
 	var (
-		err       error
-		cli       *Client
-		conn      net.Conn
-		tempDelay time.Duration
+		err  error
+		cli  *Client
+		conn net.Conn
 	)
 
 	s.running = true
@@ -53,25 +112,21 @@ func (s *Server) runLoop() error {
 				s.Accepted++
 				cli = newClientWithConn(conn, s.Codec, s.Handler, s.subLoad)
 				s.Handler.OnConnected(cli)
-				cli.Run()
+				if _, ok := conn.(WebsocketConn); !ok {
+					cli.Run()
+				} else {
+					cli.RunWebsocket()
+				}
 			} else {
 				conn.Close()
 				s.subLoad()
 			}
 		} else {
 			if ne, ok := err.(net.Error); ok && ne.Temporary() {
-				if tempDelay == 0 {
-					tempDelay = 5 * time.Millisecond
-				} else {
-					tempDelay *= 2
-				}
-				if max := 1 * time.Second; tempDelay > max {
-					tempDelay = max
-				}
-				logError("%v Accept error: %v; retrying in %v", s.Handler.LogTag(), err, tempDelay)
-				time.Sleep(tempDelay)
+				log.Error("%v Accept error: %v; retrying...", s.Handler.LogTag(), err)
+				time.Sleep(time.Second / 20)
 			} else {
-				logError("%v Accept error: %v", s.Handler.LogTag(), err)
+				log.Error("%v Accept error: %v", s.Handler.LogTag(), err)
 				break
 			}
 		}
@@ -80,64 +135,12 @@ func (s *Server) runLoop() error {
 	return err
 }
 
-// Serve starts rpc service with listener
-func (s *Server) Serve(ln net.Listener) error {
-	s.Listener = ln
-	s.chStop = make(chan error)
-	logInfo("%v Running On: \"%v\"", s.Handler.LogTag(), ln.Addr())
-	defer logInfo("%v Stopped", s.Handler.LogTag())
-	return s.runLoop()
-}
-
-// Run starts a tcp service on addr
-func (s *Server) Run(addr string) error {
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		logInfo("%v Running failed: %v", s.Handler.LogTag(), err)
-		return err
-	}
-	s.Listener = ln
-	s.chStop = make(chan error)
-	logInfo("%v Running On: \"%v\"", s.Handler.LogTag(), ln.Addr())
-	// defer logInfo("%v Stopped", s.Handler.LogTag())
-	return s.runLoop()
-}
-
-// Stop rpc service
-func (s *Server) Stop() error {
-	// logInfo("%v %v Stop...", s.Handler.LogTag(), s.Listener.Addr())
-	defer logInfo("%v %v Stop", s.Handler.LogTag(), s.Listener.Addr())
-	s.running = false
-	s.Listener.Close()
-	select {
-	case <-s.chStop:
-	default:
-	case <-time.After(time.Second):
-		return ErrTimeout
-	}
-	return nil
-}
-
-// Shutdown stop rpc service
-func (s *Server) Shutdown(ctx context.Context) error {
-	// logInfo("%v %v Shutdown...", s.Handler.LogTag(), s.Listener.Addr())
-	defer logInfo("%v %v Shutdown", s.Handler.LogTag(), s.Listener.Addr())
-	s.running = false
-	s.Listener.Close()
-	select {
-	case <-s.chStop:
-	case <-ctx.Done():
-		return ErrTimeout
-	}
-	return nil
-}
-
 // NewServer factory
 func NewServer() *Server {
 	h := DefaultHandler.Clone()
 	h.SetLogTag("[easyRpc SVR]")
 	return &Server{
-		Codec:   DefaultCodec,
+		Codec:   codec.DefaultCodec,
 		Handler: h,
 	}
 }

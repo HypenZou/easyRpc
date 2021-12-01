@@ -7,100 +7,36 @@ package easyRpc
 import (
 	"reflect"
 	"testing"
+
+	"github.com/wubbalubbaaa/easyRpc/codec"
 )
 
 func TestContext_Body(t *testing.T) {
-	tests := []struct {
-		name string
-		ctx  *Context
-		want []byte
-	}{
-		struct {
-			name string
-			ctx  *Context
-			want []byte
-		}{
-			name: "normal body",
-			ctx: &Context{
-				Client:  &Client{Codec: DefaultCodec},
-				Message: Message([]byte{0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8}),
-			},
-			want: []byte{1, 2, 3, 4, 5, 6, 7, 8},
-		},
+	ctx := &Context{
+		Client:  &Client{Codec: codec.DefaultCodec},
+		Message: Message([]byte{8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8}),
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.ctx.Body(); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Context.Body() = %v, want %v", got, tt.want)
-			}
-		})
+	if got := ctx.Body(); !reflect.DeepEqual(got, []byte{1, 2, 3, 4, 5, 6, 7, 8}) {
+		t.Errorf("Context.Body() = %v, want %v", got, []byte{1, 2, 3, 4, 5, 6, 7, 8})
 	}
 }
 
 func TestContext_Bind(t *testing.T) {
-	type args struct {
-		v interface{}
+	ctx := &Context{
+		Client:  &Client{Codec: codec.DefaultCodec},
+		Message: Message([]byte{4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 'a', 'b', 'c', 'd'}),
 	}
-	tests := []struct {
-		name    string
-		ctx     *Context
-		args    args
-		wantErr bool
-	}{
-		struct {
-			name    string
-			ctx     *Context
-			args    args
-			wantErr bool
-		}{
-			name: "bind error message",
-			ctx: &Context{
-				Client:  &Client{Codec: DefaultCodec},
-				Message: Message([]byte{1, 0, 1, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'a', 'b', 'c', 'd'}),
-			},
-			args:    args{},
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.ctx.Bind(tt.args.v); (err != nil) != tt.wantErr {
-				t.Errorf("Context.Bind() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
+	if err := ctx.Bind(nil); err == nil {
+		t.Errorf("Context.Bind() error = nil, want %v", err)
 	}
 }
 
 func TestContext_Write(t *testing.T) {
-	type args struct {
-		v interface{}
+	ctx := &Context{
+		Client:  &Client{Codec: codec.DefaultCodec},
+		Message: Message([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0}),
 	}
-	tests := []struct {
-		name    string
-		ctx     *Context
-		args    args
-		wantErr bool
-	}{
-		struct {
-			name    string
-			ctx     *Context
-			args    args
-			wantErr bool
-		}{
-			name: "should only response to a request message",
-			ctx: &Context{
-				Client:  &Client{Codec: DefaultCodec},
-				Message: Message([]byte{2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}),
-			},
-			args:    args{},
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := tt.ctx.Write(tt.args.v); (err == ErrShouldOnlyResponseToRequestMessage) != tt.wantErr {
-				t.Errorf("Context.Write() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
+	if err := ctx.Write(nil); err != ErrShouldOnlyResponseToRequestMessage {
+		t.Errorf("Context.Write() error = %v, wantErr %v", err, ErrShouldOnlyResponseToRequestMessage)
 	}
 }

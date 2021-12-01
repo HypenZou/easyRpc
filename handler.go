@@ -9,6 +9,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+
+	"github.com/wubbalubbaaa/easyRpc/log"
+	"github.com/wubbalubbaaa/easyRpc/util"
 )
 
 // DefaultHandler instance
@@ -16,6 +19,12 @@ var DefaultHandler Handler = NewHandler()
 
 // HandlerFunc type define
 type HandlerFunc func(*Context)
+
+// RouterHandler handle message
+type RouterHandler struct {
+	Async    bool
+	Handlers []HandlerFunc
+}
 
 // Handler defines net message handler
 type Handler interface {
@@ -83,11 +92,23 @@ type Handler interface {
 	// SetSendQueueSize sets Client.chSend capacity
 	SetSendQueueSize(size int)
 
+	// Handle sets middleware
+	Use(h HandlerFunc)
+
+	// UseCoder sets middleware for message encoding/decoding
+	UseCoder(coder MessageCoder)
+
 	// Handle registers method handler
-	Handle(m string, h HandlerFunc)
+	Handle(m string, h HandlerFunc, args ...interface{})
 
 	// OnMessage dispatches messages
 	OnMessage(c *Client, m Message)
+
+	// GetBuffer factory
+	GetBuffer(size int) []byte
+
+	// SetBufferFactory registers buffer factory handler
+	SetBufferFactory(f func(int) []byte)
 }
 
 type handler struct {
@@ -102,16 +123,36 @@ type handler struct {
 	onOverstock    func(c *Client, m Message)
 	onSessionMiss  func(c *Client, m Message)
 
-	beforeRecv func(net.Conn) error
-	beforeSend func(net.Conn) error
+	beforeRecv    func(net.Conn) error
+	beforeSend    func(net.Conn) error
+	bufferFactory func(int) []byte
 
 	wrapReader func(conn net.Conn) io.Reader
 
-	routes map[string]HandlerFunc
+	middles   []HandlerFunc
+	msgCoders []MessageCoder
+
+	routes map[string]*RouterHandler
 }
 
 func (h *handler) Clone() Handler {
-	var cp = *h
+	cp := *h
+	cp.middles = make([]HandlerFunc, len(h.middles))
+	copy(cp.middles, h.middles)
+
+	cp.msgCoders = make([]MessageCoder, len(h.msgCoders))
+	copy(cp.msgCoders, h.msgCoders)
+
+	cp.routes = map[string]*RouterHandler{}
+	for k, v := range h.routes {
+		rh := &RouterHandler{
+			Async:    v.Async,
+			Handlers: make([]HandlerFunc, len(v.Handlers)),
+		}
+		copy(rh.Handlers, v.Handlers)
+		cp.routes[k] = rh
+	}
+
 	return &cp
 }
 
@@ -214,9 +255,30 @@ func (h *handler) SetSendQueueSize(size int) {
 	h.sendQueueSize = size
 }
 
-func (h *handler) Handle(method string, cb HandlerFunc) {
+func (h *handler) Use(cb HandlerFunc) {
+	cbWithNext := func(ctx *Context) {
+		cb(ctx)
+		ctx.Next()
+	}
+	h.middles = append(h.middles, cbWithNext)
+	for k, v := range h.routes {
+		rh := &RouterHandler{
+			Async:    v.Async,
+			Handlers: make([]HandlerFunc, len(v.Handlers)+1),
+		}
+		copy(rh.Handlers, v.Handlers)
+		rh.Handlers[len(v.Handlers)] = cbWithNext
+		h.routes[k] = rh
+	}
+}
+
+func (h *handler) UseCoder(coder MessageCoder) {
+	h.msgCoders = append(h.msgCoders, coder)
+}
+
+func (h *handler) Handle(method string, cb HandlerFunc, args ...interface{}) {
 	if h.routes == nil {
-		h.routes = map[string]HandlerFunc{}
+		h.routes = map[string]*RouterHandler{}
 	}
 	if len(method) > MaxMethodLen {
 		panic(fmt.Errorf("invalid method length %v(> MaxMethodLen %v)", len(method), MaxMethodLen))
@@ -224,7 +286,23 @@ func (h *handler) Handle(method string, cb HandlerFunc) {
 	if _, ok := h.routes[method]; ok {
 		panic(fmt.Errorf("handler exist for method %v ", method))
 	}
-	h.routes[method] = cb
+
+	async := false
+	if len(args) > 0 {
+		if bv, ok := args[0].(bool); ok {
+			async = bv
+		}
+	}
+	rh := &RouterHandler{
+		Async:    async,
+		Handlers: make([]HandlerFunc, len(h.middles)+1),
+	}
+	copy(rh.Handlers, h.middles)
+	rh.Handlers[len(h.middles)] = func(ctx *Context) {
+		cb(ctx)
+		ctx.Next()
+	}
+	h.routes[method] = rh
 }
 
 func (h *handler) Recv(c *Client) (Message, error) {
@@ -239,14 +317,18 @@ func (h *handler) Recv(c *Client) (Message, error) {
 		}
 	}
 
-	_, err = io.ReadFull(c.Reader, c.Head)
+	_, err = io.ReadFull(c.Reader, c.Head[:headerIndexBodyLenEnd])
 	if err != nil {
 		return nil, err
 	}
 
-	message, err = c.Head.message()
+	message, err = c.Head.message(h)
 	if err == nil && len(message) > HeadLen {
-		_, err = io.ReadFull(c.Reader, message[HeadLen:])
+		_, err = io.ReadFull(c.Reader, message[headerIndexBodyLenEnd:])
+	}
+
+	for i := len(h.msgCoders) - 1; i >= 0; i-- {
+		message = h.msgCoders[i].Decode(message)
 	}
 
 	return message, err
@@ -258,6 +340,11 @@ func (h *handler) Send(conn net.Conn, m Message) (int, error) {
 			return -1, err
 		}
 	}
+
+	for i := 0; i < len(h.msgCoders); i++ {
+		m = h.msgCoders[i].Encode(m)
+	}
+
 	return conn.Write(m)
 }
 
@@ -267,29 +354,36 @@ func (h *handler) SendN(conn net.Conn, buffers net.Buffers) (int, error) {
 			return -1, err
 		}
 	}
+	for i := 0; i < len(buffers); i++ {
+		for j := 0; j < len(h.msgCoders); j++ {
+			buffers[i] = h.msgCoders[j].Encode(buffers[i])
+		}
+	}
 	n64, err := buffers.WriteTo(conn)
 	return int(n64), err
 }
 
 func (h *handler) OnMessage(c *Client, msg Message) {
+	ml := msg.MethodLen()
+	if ml <= 0 || ml > MaxMethodLen || ml > (len(msg)-HeadLen) {
+		log.Warn("%v OnMessage: invalid request method length %v, dropped", h.LogTag())
+		return
+	}
 	switch msg.Cmd() {
 	case CmdRequest, CmdNotify:
-		if msg.MethodLen() == 0 {
-			logWarn("%v OnMessage: invalid request message with 0 method length, dropped", h.LogTag())
-			return
-		}
-		method := msg.Method()
-		if handler, ok := h.routes[method]; ok {
-			handler(newContext(c, msg))
+		method := util.BytesToStr(msg[HeadLen : HeadLen+ml])
+		if rh, ok := h.routes[method]; ok {
+			ctx := newContext(c, msg, rh.Handlers)
+			if !rh.Async {
+				ctx.Next()
+			} else {
+				go ctx.Next()
+			}
 		} else {
-			logWarn("%v OnMessage: invalid method: [%v], no handler", h.LogTag(), method)
+			log.Warn("%v OnMessage: invalid method: [%v], no handler", h.LogTag(), method)
 		}
 		break
 	case CmdResponse:
-		if msg.MethodLen() > 0 {
-			logWarn("%v OnMessage: invalid response message with method length %v, dropped", h.LogTag(), msg.MethodLen())
-			return
-		}
 		if !msg.IsAsync() {
 			seq := msg.Seq()
 			session, ok := c.getSession(seq)
@@ -297,22 +391,33 @@ func (h *handler) OnMessage(c *Client, msg Message) {
 				session.done <- msg
 			} else {
 				h.OnSessionMiss(c, msg)
-				logWarn("%v OnMessage: session not exist or expired", h.LogTag())
+				log.Warn("%v OnMessage: session not exist or expired", h.LogTag())
 			}
 		} else {
 			handler, ok := c.getAndDeleteAsyncHandler(msg.Seq())
 			if ok {
-				handler(newContext(c, msg))
+				handler(newContext(c, msg, nil))
 			} else {
 				h.OnSessionMiss(c, msg)
-				logWarn("%v OnMessage: async handler not exist or expired", h.LogTag())
+				log.Warn("%v OnMessage: async handler not exist or expired", h.LogTag())
 			}
 		}
 		break
 	default:
-		logWarn("%v OnMessage: invalid cmd [%v]", h.LogTag(), msg.Cmd())
+		log.Warn("%v OnMessage: invalid cmd [%v]", h.LogTag(), msg.Cmd())
 		break
 	}
+}
+
+func (h *handler) GetBuffer(size int) []byte {
+	if h.bufferFactory != nil {
+		return h.bufferFactory(size)
+	}
+	return make([]byte, size)
+}
+
+func (h *handler) SetBufferFactory(f func(int) []byte) {
+	h.bufferFactory = f
 }
 
 // NewHandler factory
