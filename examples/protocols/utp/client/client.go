@@ -1,20 +1,20 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net"
 	"time"
 
+	"github.com/anacrolix/utp"
 	"github.com/wubbalubbaaa/easyRpc"
 )
 
 func main() {
 	client, err := easyRpc.NewClient(func() (net.Conn, error) {
-		addr, err := net.ResolveUnixAddr("unix", "bench.unixsock")
-		if err != nil {
-			return nil, err
-		}
-		return net.DialUnix("unix", nil, addr)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		return utp.DialContext(ctx, "localhost:8888")
 	})
 	if err != nil {
 		panic(err)

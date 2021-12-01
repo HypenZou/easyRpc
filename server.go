@@ -7,11 +7,13 @@ package easyRpc
 import (
 	"context"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/wubbalubbaaa/easyRpc/codec"
 	"github.com/wubbalubbaaa/easyRpc/log"
+	"github.com/wubbalubbaaa/easyRpc/util"
 )
 
 // Server definition
@@ -25,8 +27,12 @@ type Server struct {
 
 	Listener net.Listener
 
+	mux sync.Mutex
+
+	seq     uint64
 	running bool
 	chStop  chan error
+	clients map[*Client]util.Empty
 }
 
 // Serve starts rpc service with listener
@@ -54,7 +60,6 @@ func (s *Server) Run(addr string) error {
 
 // Stop rpc service
 func (s *Server) Stop() error {
-	// log.Info("%v %v Stop...", s.Handler.LogTag(), s.Listener.Addr())
 	defer log.Info("%v %v Stop", s.Handler.LogTag(), s.Listener.Addr())
 	s.running = false
 	s.Listener.Close()
@@ -69,7 +74,6 @@ func (s *Server) Stop() error {
 
 // Shutdown stop rpc service
 func (s *Server) Shutdown(ctx context.Context) error {
-	// log.Info("%v %v Shutdown...", s.Handler.LogTag(), s.Listener.Addr())
 	defer log.Info("%v %v Shutdown", s.Handler.LogTag(), s.Listener.Addr())
 	s.running = false
 	s.Listener.Close()
@@ -82,8 +86,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 // NewMessage factory
-func (s *Server) NewMessage(cmd byte, method string, v interface{}) Message {
-	return newMessage(cmd, method, v, s.Handler, s.Codec)
+func (s *Server) NewMessage(cmd byte, method string, v interface{}) *Message {
+	return newMessage(cmd, method, v, false, false, atomic.AddUint64(&s.seq, 1), s.Handler, s.Codec, nil)
 }
 
 func (s *Server) addLoad() int64 {
@@ -94,6 +98,27 @@ func (s *Server) subLoad() int64 {
 	return atomic.AddInt64(&s.CurrLoad, -1)
 }
 
+func (s *Server) addClient(c *Client) {
+	s.mux.Lock()
+	s.clients[c] = util.Empty{}
+	s.mux.Unlock()
+}
+
+func (s *Server) deleteClient(c *Client) {
+	s.mux.Lock()
+	delete(s.clients, c)
+	s.mux.Unlock()
+}
+
+func (s *Server) clearClients() {
+	s.mux.Lock()
+	for c := range s.clients {
+		go c.Stop()
+	}
+	s.clients = map[*Client]util.Empty{}
+	s.mux.Unlock()
+}
+
 func (s *Server) runLoop() error {
 	var (
 		err  error
@@ -102,7 +127,10 @@ func (s *Server) runLoop() error {
 	)
 
 	s.running = true
-	defer close(s.chStop)
+	defer func() {
+		s.clearClients()
+		close(s.chStop)
+	}()
 
 	for s.running {
 		conn, err = s.Listener.Accept()
@@ -110,13 +138,12 @@ func (s *Server) runLoop() error {
 			load := s.addLoad()
 			if s.MaxLoad <= 0 || load <= s.MaxLoad {
 				s.Accepted++
-				cli = newClientWithConn(conn, s.Codec, s.Handler, s.subLoad)
+				cli = newClientWithConn(conn, s.Codec, s.Handler, func(c *Client) {
+					s.deleteClient(c)
+					s.subLoad()
+				})
+				s.addClient(cli)
 				s.Handler.OnConnected(cli)
-				if _, ok := conn.(WebsocketConn); !ok {
-					cli.Run()
-				} else {
-					cli.RunWebsocket()
-				}
 			} else {
 				conn.Close()
 				s.subLoad()
@@ -142,5 +169,6 @@ func NewServer() *Server {
 	return &Server{
 		Codec:   codec.DefaultCodec,
 		Handler: h,
+		clients: map[*Client]util.Empty{},
 	}
 }

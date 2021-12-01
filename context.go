@@ -5,21 +5,43 @@
 package easyRpc
 
 import (
-	"encoding/binary"
-	"errors"
 	"time"
-
-	"github.com/wubbalubbaaa/easyRpc/util"
+	// "github.com/wubbalubbaaa/easyRpc/util"
 )
 
 // Context definition
 type Context struct {
 	Client  *Client
-	Message Message
+	Message *Message
+	Values  map[string]interface{}
+
+	err      interface{}
+	response []interface{}
+	timeout  time.Duration
 
 	done     bool
 	index    int
 	handlers []HandlerFunc
+}
+
+// Get returns value for key
+func (ctx *Context) Get(key string) (interface{}, bool) {
+	if len(ctx.Values) == 0 {
+		return nil, false
+	}
+	value, ok := ctx.Values[key]
+	return value, ok
+}
+
+// Set sets key-value pair
+func (ctx *Context) Set(key string, value interface{}) {
+	if value == nil {
+		return
+	}
+	if ctx.Values == nil {
+		ctx.Values = map[string]interface{}{}
+	}
+	ctx.Values[key] = value
 }
 
 // Body returns body
@@ -40,8 +62,8 @@ func (ctx *Context) Bind(v interface{}) error {
 			*vt = data
 		case *string:
 			*vt = string(data)
-		case *error:
-			*vt = errors.New(util.BytesToStr(data))
+		// case *error:
+		// 	*vt = errors.New(util.BytesToStr(data))
 		default:
 			return ctx.Client.Codec.Unmarshal(data, v)
 		}
@@ -60,8 +82,8 @@ func (ctx *Context) WriteWithTimeout(v interface{}, timeout time.Duration) error
 }
 
 // Error responses error message to client
-func (ctx *Context) Error(err error) error {
-	return ctx.write(err, true, TimeForever)
+func (ctx *Context) Error(v interface{}) error {
+	return ctx.write(v, true, TimeForever)
 }
 
 // Next .
@@ -81,45 +103,19 @@ func (ctx *Context) Done() {
 	ctx.done = true
 }
 
-func (ctx *Context) newRspMessage(v interface{}, isError bool) Message {
-	var (
-		data      []byte
-		msg       Message
-		bodyLen   int
-		methodLen int
-	)
-
-	// if ctx.Message.Cmd() != CmdRequest {
-	// 	return nil
-	// }
-
+func (ctx *Context) write(v interface{}, isError bool, timeout time.Duration) error {
+	cli := ctx.Client
+	req := ctx.Message
+	if req.Cmd() != CmdRequest {
+		return ErrContextResponseToNotify
+	}
 	if _, ok := v.(error); ok {
 		isError = true
 	}
-
-	data = util.ValueToBytes(ctx.Client.Codec, v)
-
-	methodLen = ctx.Message.MethodLen()
-	bodyLen = len(data) + methodLen
-	msg = Message(ctx.Client.Handler.GetBuffer(HeadLen + bodyLen))
-	copy(msg[HeaderIndexFlag:], ctx.Message[HeaderIndexFlag:HeadLen+methodLen])
-	binary.LittleEndian.PutUint32(msg[HeaderIndexBodyLenBegin:HeaderIndexBodyLenEnd], uint32(bodyLen))
-	// binary.LittleEndian.PutUint64(msg[HeaderIndexSeqBegin:HeaderIndexSeqEnd], ctx.Message.Seq())
-	msg[HeaderIndexCmd] = CmdResponse
-	msg.SetError(isError)
-	copy(msg[HeadLen+methodLen:], data)
-
-	return msg
+	rsp := newMessage(CmdResponse, req.method(), v, isError, req.IsAsync(), req.Seq(), cli.Handler, cli.Codec, ctx.Values)
+	return cli.PushMsg(rsp, ctx.timeout)
 }
 
-func (ctx *Context) write(v interface{}, isError bool, timeout time.Duration) error {
-	if ctx.Message.Cmd() != CmdRequest {
-		return ErrShouldOnlyResponseToRequestMessage
-	}
-	msg := ctx.newRspMessage(v, isError)
-	return ctx.Client.PushMsg(msg, timeout)
-}
-
-func newContext(c *Client, msg Message, handlers []HandlerFunc) *Context {
-	return &Context{Client: c, Message: msg, done: false, index: -1, handlers: handlers}
+func newContext(cli *Client, msg *Message, handlers []HandlerFunc) *Context {
+	return &Context{Client: cli, Message: msg, done: false, index: -1, handlers: handlers}
 }

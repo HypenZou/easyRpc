@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lesismal/easyRpc/log"
+	"github.com/wubbalubbaaa/easyRpc/log"
 )
 
 func TestPubSub(t *testing.T) {
@@ -50,7 +50,6 @@ func newClient(t *testing.T, address, password string) *Client {
 		t.Fatal(err)
 	}
 	client.Password = password
-	client.Run()
 
 	// authentication
 	err = client.Authenticate()
@@ -63,9 +62,9 @@ func newClient(t *testing.T, address, password string) *Client {
 
 func consumer(c *Client, topicName string, chDone chan int) {
 	cnt := 0
-	err := c.Subscribe(topicName, func(topic Topic) {
+	err := c.Subscribe(topicName, func(topic *Topic) {
 		cnt++
-		log.Info("[OnTopic] [%v] \"%v\" %v", topic.GetName(), string(topic.GetData()), time.Unix(topic.GetTimestamp(), 0).Format("15:04:05"))
+		log.Info("[OnTopic] [%v] \"%v\" %v", topic.Name, string(topic.Data), time.Unix(topic.Timestamp, 0).Format("15:04:05"))
 		if cnt >= 3 {
 			close(chDone)
 		}

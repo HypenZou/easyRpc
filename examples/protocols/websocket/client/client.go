@@ -10,20 +10,23 @@ import (
 )
 
 func main() {
+	easyRpc.DefaultHandler.Handle("/server/notify", func(ctx *easyRpc.Context) {
+		str := ""
+		err := ctx.Bind(&str)
+		log.Printf("/server/notify: \"%v\", error: %v", str, err)
+	})
+
 	client, err := easyRpc.NewClient(func() (net.Conn, error) {
 		return websocket.Dial("ws://localhost:8888/ws")
 	})
 	if err != nil {
 		panic(err)
 	}
-	client.Handler.SetBatchRecv(false)
-
-	client.Run()
 	defer client.Stop()
 
 	req := "hello"
 	rsp := ""
-	err = client.Call("/echo", &req, &rsp, time.Second*5)
+	err = client.Call("/call/echo", &req, &rsp, time.Second*5)
 	if err != nil {
 		log.Fatalf("Call failed: %v", err)
 	} else {

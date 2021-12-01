@@ -7,14 +7,14 @@ import (
 	"time"
 
 	"github.com/wubbalubbaaa/easyRpc"
-	"github.com/wubbalubbaaa/easyRpc/codec"
 )
 
 var mux = sync.RWMutex{}
+var server = easyRpc.NewServer()
 var clientMap = make(map[*easyRpc.Client]struct{})
 
 func main() {
-	server := easyRpc.NewServer()
+
 	server.Handler.Handle("/enter", func(ctx *easyRpc.Context) {
 		passwd := ""
 		ctx.Bind(&passwd)
@@ -49,7 +49,7 @@ func main() {
 }
 
 func broadcast(i int) {
-	msg := easyRpc.NewMessage(easyRpc.CmdNotify, "/broadcast", fmt.Sprintf("broadcast msg %d", i), codec.DefaultCodec)
+	msg := server.NewMessage(easyRpc.CmdNotify, "/broadcast", fmt.Sprintf("broadcast msg %d", i))
 	mux.RLock()
 	for client := range clientMap {
 		client.PushMsg(msg, easyRpc.TimeZero)
