@@ -7,13 +7,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wubbalubbaaa/arpc"
+	"github.com/wubbalubbaaa/easyRpc"
 )
 
 var notifyCount int32
 
 // OnBroadcast .
-func OnBroadcast(ctx *arpc.Context) {
+func OnBroadcast(ctx *easyRpc.Context) {
 	ret := ""
 	ctx.Bind(&ret)
 	log.Printf("OnServerNotify: \"%v\"", ret)
@@ -27,12 +27,12 @@ func dialer() (net.Conn, error) {
 }
 
 func main() {
-	var clients []*arpc.Client
+	var clients []*easyRpc.Client
 
-	arpc.DefaultHandler.Handle("/broadcast", OnBroadcast)
+	easyRpc.DefaultHandler.Handle("/broadcast", OnBroadcast)
 
 	for i := 0; i < 10; i++ {
-		client, err := arpc.NewClient(dialer)
+		client, err := easyRpc.NewClient(dialer)
 		if err != nil {
 			log.Println("NewClient failed:", err)
 			return

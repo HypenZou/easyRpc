@@ -2,7 +2,7 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-package arpc
+package easyRpc
 
 import (
 	"context"
@@ -12,9 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wubbalubbaaa/arpc/codec"
-	"github.com/wubbalubbaaa/arpc/log"
-	"github.com/wubbalubbaaa/arpc/util"
+	"github.com/wubbalubbaaa/easyRpc/codec"
+	"github.com/wubbalubbaaa/easyRpc/log"
+	"github.com/wubbalubbaaa/easyRpc/util"
 )
 
 const (
@@ -60,14 +60,13 @@ type Client struct {
 
 	onStop func(*Client)
 
-	kvmux  sync.RWMutex
 	values map[string]interface{}
 }
 
 // Get returns value for key
 func (c *Client) Get(key string) (interface{}, bool) {
-	c.kvmux.RLock()
-	defer c.kvmux.RUnlock()
+	c.mux.RLock()
+	defer c.mux.RUnlock()
 	if len(c.values) == 0 {
 		return nil, false
 	}
@@ -80,12 +79,14 @@ func (c *Client) Set(key string, value interface{}) {
 	if value == nil {
 		return
 	}
-	c.kvmux.Lock()
-	defer c.kvmux.Unlock()
-	if c.values == nil {
-		c.values = map[string]interface{}{}
+	c.mux.Lock()
+	defer c.mux.Unlock()
+	if c.running {
+		if c.values == nil {
+			c.values = map[string]interface{}{}
+		}
+		c.values[key] = value
 	}
-	c.values[key] = value
 }
 
 // NewMessage factory
@@ -94,7 +95,7 @@ func (c *Client) NewMessage(cmd byte, method string, v interface{}) *Message {
 }
 
 // Call make rpc call with timeout
-func (c *Client) Call(method string, req interface{}, rsp interface{}, timeout time.Duration) error {
+func (c *Client) Call(method string, req interface{}, rsp interface{}, timeout time.Duration, args ...interface{}) error {
 	if err := c.checkCallArgs(method, timeout); err != nil {
 		return err
 	}
@@ -105,7 +106,7 @@ func (c *Client) Call(method string, req interface{}, rsp interface{}, timeout t
 
 	timer := time.NewTimer(timeout)
 
-	msg := c.newRequestMessage(CmdRequest, method, req, false, false)
+	msg := c.newRequestMessage(CmdRequest, method, req, false, false, args...)
 	seq := msg.Seq()
 	sess := newSession(seq)
 	c.addSession(seq, sess)
@@ -146,12 +147,12 @@ func (c *Client) checkCallArgs(method string, timeout time.Duration) error {
 }
 
 // CallWith make rpc call with context
-func (c *Client) CallWith(ctx context.Context, method string, req interface{}, rsp interface{}) error {
+func (c *Client) CallWith(ctx context.Context, method string, req interface{}, rsp interface{}, args ...interface{}) error {
 	if err := c.checkStateAndMethod(method); err != nil {
 		return err
 	}
 
-	msg := c.newRequestMessage(CmdRequest, method, req, false, false)
+	msg := c.newRequestMessage(CmdRequest, method, req, false, false, args...)
 	seq := msg.Seq()
 	sess := newSession(seq)
 	c.addSession(seq, sess)
@@ -179,7 +180,7 @@ func (c *Client) CallWith(ctx context.Context, method string, req interface{}, r
 }
 
 // CallAsync make async rpc call with timeout
-func (c *Client) CallAsync(method string, req interface{}, handler HandlerFunc, timeout time.Duration) error {
+func (c *Client) CallAsync(method string, req interface{}, handler HandlerFunc, timeout time.Duration, args ...interface{}) error {
 	err := c.checkCallAsyncArgs(method, handler, timeout)
 	if err != nil {
 		return err
@@ -187,7 +188,7 @@ func (c *Client) CallAsync(method string, req interface{}, handler HandlerFunc, 
 
 	var timer *time.Timer
 
-	msg := c.newRequestMessage(CmdRequest, method, req, false, true)
+	msg := c.newRequestMessage(CmdRequest, method, req, false, true, args...)
 	seq := msg.Seq()
 	if handler != nil {
 		c.addAsyncHandler(seq, handler)
@@ -227,13 +228,13 @@ func (c *Client) checkCallAsyncArgs(method string, handler HandlerFunc, timeout 
 }
 
 // Notify make rpc notify with timeout
-func (c *Client) Notify(method string, data interface{}, timeout time.Duration) error {
+func (c *Client) Notify(method string, data interface{}, timeout time.Duration, args ...interface{}) error {
 	err := c.checkNotifyArgs(method, timeout)
 	if err != nil {
 		return err
 	}
 
-	msg := c.newRequestMessage(CmdNotify, method, data, false, true)
+	msg := c.newRequestMessage(CmdNotify, method, data, false, true, args...)
 	switch timeout {
 	case TimeZero:
 		err = c.pushMessage(msg, nil)
@@ -257,12 +258,12 @@ func (c *Client) checkNotifyArgs(method string, timeout time.Duration) error {
 }
 
 // NotifyWith make rpc notify with context
-func (c *Client) NotifyWith(ctx context.Context, method string, data interface{}) error {
+func (c *Client) NotifyWith(ctx context.Context, method string, data interface{}, args ...interface{}) error {
 	if err := c.checkStateAndMethod(method); err != nil {
 		return err
 	}
 
-	msg := c.newRequestMessage(CmdNotify, method, data, false, true)
+	msg := c.newRequestMessage(CmdNotify, method, data, false, true, args...)
 
 	select {
 	case c.chSend <- msg:
@@ -279,7 +280,7 @@ func (c *Client) NotifyWith(ctx context.Context, method string, data interface{}
 
 // PushMsg push msg to client's send queue
 func (c *Client) PushMsg(msg *Message, timeout time.Duration) error {
-	err := c.checkState()
+	err := c.CheckState()
 	if err != nil {
 		return err
 	}
@@ -337,7 +338,8 @@ func (c *Client) pushMessage(msg *Message, timer *time.Timer) error {
 	return nil
 }
 
-func (c *Client) checkState() error {
+// CheckState checks client's state
+func (c *Client) CheckState() error {
 	if !c.running {
 		return ErrClientStopped
 	}
@@ -348,7 +350,7 @@ func (c *Client) checkState() error {
 }
 
 func (c *Client) checkStateAndMethod(method string) error {
-	err := c.checkState()
+	err := c.CheckState()
 	if err != nil {
 		return err
 	}
@@ -373,8 +375,15 @@ func (c *Client) Stop() {
 	}
 }
 
-func (c *Client) newRequestMessage(cmd byte, method string, v interface{}, isError bool, isAsync bool) *Message {
-	return newMessage(cmd, method, v, isError, isAsync, atomic.AddUint64(&c.seq, 1), c.Handler, c.Codec, nil)
+func (c *Client) newRequestMessage(cmd byte, method string, v interface{}, isError bool, isAsync bool, args ...interface{}) *Message {
+	if len(args) == 0 {
+		return newMessage(cmd, method, v, isError, isAsync, atomic.AddUint64(&c.seq, 1), c.Handler, c.Codec, nil)
+	}
+	values, ok := args[0].(M)
+	if ok {
+		return newMessage(cmd, method, v, isError, isAsync, atomic.AddUint64(&c.seq, 1), c.Handler, c.Codec, values)
+	}
+	return newMessage(cmd, method, v, isError, isAsync, atomic.AddUint64(&c.seq, 1), c.Handler, c.Codec, args[0].(map[string]interface{}))
 }
 
 func (c *Client) parseResponse(msg *Message, rsp interface{}) error {
@@ -407,7 +416,9 @@ func (c *Client) parseResponse(msg *Message, rsp interface{}) error {
 
 func (c *Client) addSession(seq uint64, session *rpcSession) {
 	c.mux.Lock()
-	c.sessionMap[seq] = session
+	if c.running {
+		c.sessionMap[seq] = session
+	}
 	c.mux.Unlock()
 }
 
@@ -450,7 +461,9 @@ func (c *Client) dropMessage(msg *Message) {
 
 func (c *Client) addAsyncHandler(seq uint64, h HandlerFunc) {
 	c.mux.Lock()
-	c.asyncHandlerMap[seq] = h
+	if c.running {
+		c.asyncHandlerMap[seq] = h
+	}
 	c.mux.Unlock()
 }
 
@@ -498,6 +511,7 @@ func (c *Client) Restart() error {
 		c.chClose = make(chan util.Empty)
 		c.sessionMap = make(map[uint64]*rpcSession)
 		c.asyncHandlerMap = make(map[uint64]HandlerFunc)
+		c.values = map[string]interface{}{}
 
 		c.initReader()
 		go util.Safe(c.sendLoop)
@@ -556,7 +570,7 @@ func (c *Client) recvLoop() {
 		for c.running {
 			msg, err = c.Handler.Recv(c)
 			if err != nil {
-				log.Info("%v\t%v\tDisconnected: %v", c.Handler.LogTag(), addr, err)
+				log.Debug("%v\t%v\tDisconnected: %v", c.Handler.LogTag(), addr, err)
 				c.Stop()
 				return
 			}
@@ -582,7 +596,7 @@ func (c *Client) recvLoop() {
 			c.clearAsyncHandler()
 
 			for c.running {
-				log.Info("%v\t%v\tReconnecting ...", c.Handler.LogTag(), addr)
+				log.Debug("%v\t%v\tReconnecting ...", c.Handler.LogTag(), addr)
 				conn, err := c.Dialer()
 				if err == nil {
 					c.Conn = conn
@@ -618,11 +632,12 @@ func (c *Client) sendLoop() {
 
 func (c *Client) normalSendLoop() {
 	var msg *Message
-	var coders = c.Handler.Coders()
+	var coders []MessageCoder
 	for {
 		select {
 		case msg = <-c.chSend:
 			if !c.reconnecting {
+				coders = c.Handler.Coders()
 				for j := 0; j < len(coders); j++ {
 					msg = coders[j].Encode(c, msg)
 				}
@@ -640,7 +655,7 @@ func (c *Client) normalSendLoop() {
 
 func (c *Client) batchSendLoop() {
 	var msg *Message
-	var coders = c.Handler.Coders()
+	var coders []MessageCoder
 	var messages []*Message = make([]*Message, 10)[0:0]
 	var buffers net.Buffers = make([][]byte, 10)[0:0]
 	for {
@@ -655,6 +670,7 @@ func (c *Client) batchSendLoop() {
 			messages = append(messages, msg)
 		}
 		if !c.reconnecting {
+			coders = c.Handler.Coders()
 			if len(messages) == 1 {
 				for j := 0; j < len(coders); j++ {
 					messages[0] = coders[j].Encode(c, messages[0])

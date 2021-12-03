@@ -2,7 +2,7 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-package arpc
+package easyRpc
 
 import (
 	"context"
@@ -162,12 +162,20 @@ func TestClient_Set(t *testing.T) {
 
 	c.Set(key, value)
 	cv, ok = c.Get(key)
+	if ok {
+		t.Fatalf("Client.Get() failed: Get '%v', want nil", value)
+	}
+
+	c.running = true
+	c.Set(key, value)
+	cv, ok = c.Get(key)
 	if !ok {
 		t.Fatalf("Client.Get() failed: Get nil, want '%v'", value)
 	}
 	if cv != value {
 		t.Fatalf("Client.Get() failed: Get '%v', want '%v'", cv, value)
 	}
+
 }
 
 func TestClient_NewMessage(t *testing.T) {
@@ -232,12 +240,12 @@ func testClientCallMethodString(c *Client, t *testing.T) {
 		req = "hello"
 		rsp = ""
 	)
-	if err = c.Call(methodCallString, req, &rsp, time.Second); err != nil {
+	if err = c.Call(methodCallString, req, &rsp, time.Second, M{}); err != nil {
 		t.Fatalf("Client.Call() error = %v", err)
 	} else if rsp != req {
 		t.Fatalf("Client.Call() error, returns '%v', want '%v'", rsp, req)
 	}
-	if err = c.Call(methodCallString, &req, &rsp, -1); err != nil {
+	if err = c.Call(methodCallString, &req, &rsp, -1, map[string]interface{}{}); err != nil {
 		t.Fatalf("Client.Call() error = %v", err)
 	} else if rsp != req {
 		t.Fatalf("Client.Call() error, returns '%v', want '%v'", rsp, req)

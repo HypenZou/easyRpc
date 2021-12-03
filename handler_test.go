@@ -2,7 +2,7 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-package arpc
+package easyRpc
 
 import (
 	"io"
@@ -17,8 +17,8 @@ func Test_handler_Clone(t *testing.T) {
 }
 
 func Test_handler_LogTag(t *testing.T) {
-	if got := DefaultHandler.LogTag(); got != "[ARPC CLI]" {
-		t.Errorf("handler.LogTag() = %v, want %v", got, "[ARPC CLI]")
+	if got := DefaultHandler.LogTag(); got != "[easyRpc CLI]" {
+		t.Errorf("handler.LogTag() = %v, want %v", got, "[easyRpc CLI]")
 	}
 }
 

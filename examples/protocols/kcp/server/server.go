@@ -4,7 +4,7 @@ import (
 	"crypto/sha1"
 	"log"
 
-	"github.com/wubbalubbaaa/arpc"
+	"github.com/wubbalubbaaa/easyRpc"
 	"github.com/xtaci/kcp-go"
 	"golang.org/x/crypto/pbkdf2"
 )
@@ -17,10 +17,10 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	svr := arpc.NewServer()
+	svr := easyRpc.NewServer()
 
 	// register router
-	svr.Handler.Handle("/echo", func(ctx *arpc.Context) {
+	svr.Handler.Handle("/echo", func(ctx *easyRpc.Context) {
 		str := ""
 		ctx.Bind(&str)
 		ctx.Write(str)

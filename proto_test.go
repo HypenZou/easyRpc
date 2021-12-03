@@ -1,4 +1,4 @@
-// Copyright 2020 wubbalubbaaa. All rights reserved.
+// Copyright 2020 lesismal. All rights reserved.
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/wubbalubbaaa/arpc/codec"
+	"github.com/lesismal/arpc/codec"
 )
 
 func TestHeader_BodyLen(t *testing.T) {
@@ -93,6 +93,14 @@ func TestMessage_Error(t *testing.T) {
 	msg := newMessage(CmdRequest, "hello", "hello", false, false, 0, DefaultHandler, codec.DefaultCodec, nil)
 	if got := msg.Error(); got != nil {
 		t.Fatalf("Message.Error() = %v, want %v", got, nil)
+	}
+}
+
+func TestMessage_Values(t *testing.T) {
+	msg := newMessage(CmdRequest, "hello", "hello", false, false, 0, DefaultHandler, codec.DefaultCodec, nil)
+	values := msg.Values()
+	if len(values) > 0 {
+		t.Fatalf("invalid Message.Values() length, returns %v, want 0", len(values))
 	}
 }
 

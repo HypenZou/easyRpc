@@ -35,7 +35,7 @@ type Logger interface {
 	Error(format string, v ...interface{})
 }
 
-// SetLogger set default logger for arpc
+// SetLogger set default logger for easyRpc
 func SetLogger(l Logger) {
 	DefaultLogger = l
 }

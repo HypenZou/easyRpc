@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wubbalubbaaa/arpc"
+	"github.com/wubbalubbaaa/easyRpc"
 )
 
 var (
@@ -38,10 +38,10 @@ func main() {
 		eachClientCoroutineNum = 10
 	)
 
-	clients := make([]*arpc.Client, clientNum)
+	clients := make([]*easyRpc.Client, clientNum)
 
 	for i := 0; i < clientNum; i++ {
-		client, err := arpc.NewClient(dialer)
+		client, err := easyRpc.NewClient(dialer)
 		if err != nil {
 			log.Println("NewClient failed:", err)
 			return

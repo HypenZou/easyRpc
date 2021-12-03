@@ -5,7 +5,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/wubbalubbaaa/arpc"
+	"github.com/wubbalubbaaa/easyRpc"
 )
 
 const (
@@ -16,7 +16,7 @@ const (
 )
 
 // OnClientHello .
-func OnClientHello(ctx *arpc.Context) {
+func OnClientHello(ctx *easyRpc.Context) {
 	str := ""
 	ctx.Bind(&str)
 	ctx.Write(str)
@@ -27,10 +27,10 @@ func OnClientHello(ctx *arpc.Context) {
 	// send 3 notify messages
 	go func() {
 		notifyPayload := "notify from server, nonblock"
-		client.Notify(methodNotify, notifyPayload, arpc.TimeZero)
+		client.Notify(methodNotify, notifyPayload, easyRpc.TimeZero)
 
 		notifyPayload = "notify from server, block"
-		client.Notify(methodNotify, notifyPayload, arpc.TimeForever)
+		client.Notify(methodNotify, notifyPayload, easyRpc.TimeForever)
 
 		notifyPayload = "notify from server, with 1 second timeout"
 		client.Notify(methodNotify, notifyPayload, time.Second)
@@ -43,7 +43,7 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	svr := arpc.NewServer()
+	svr := easyRpc.NewServer()
 	svr.Handler.Handle(methodHello, OnClientHello)
 
 	svr.Serve(ln)

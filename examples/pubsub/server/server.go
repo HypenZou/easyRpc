@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/wubbalubbaaa/arpc/pubsub"
+	"github.com/wubbalubbaaa/easyRpc/pubsub"
 )
 
 var (

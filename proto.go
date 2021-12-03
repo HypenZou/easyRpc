@@ -1,4 +1,4 @@
-// Copyright 2020 wubbalubbaaa. All rights reserved.
+// Copyright 2020 lesismal. All rights reserved.
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
@@ -9,8 +9,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/wubbalubbaaa/arpc/codec"
-	"github.com/wubbalubbaaa/arpc/util"
+	"github.com/lesismal/arpc/codec"
+	"github.com/lesismal/arpc/util"
 )
 
 const (
@@ -61,6 +61,9 @@ const (
 	MaxBodyLen int = 1024*1024*64 - 16
 )
 
+// M is a shortcut for map[string]interface{}
+type M map[string]interface{}
+
 // Header defines rpc head
 type Header []byte
 
@@ -84,7 +87,7 @@ func (h Header) message(handler Handler) (*Message, error) {
 // Message defines rpc packet
 type Message struct {
 	Buffer []byte
-	Values map[string]interface{}
+	values map[string]interface{}
 }
 
 // Len returns total length of buffer
@@ -136,6 +139,11 @@ func (m *Message) SetAsync(isAsync bool) {
 	} else {
 		m.Buffer[HeaderIndexFlag] &= ^HeaderFlagMaskAsync
 	}
+}
+
+// Values returns values
+func (m *Message) Values() map[string]interface{} {
+	return m.values
 }
 
 // SetFlagBit sets flag bit with value by index
@@ -221,10 +229,10 @@ func (m *Message) Data() []byte {
 
 // Get returns value for key
 func (m *Message) Get(key string) (interface{}, bool) {
-	if len(m.Values) == 0 {
+	if len(m.values) == 0 {
 		return nil, false
 	}
-	value, ok := m.Values[key]
+	value, ok := m.values[key]
 	return value, ok
 }
 
@@ -233,10 +241,10 @@ func (m *Message) Set(key string, value interface{}) {
 	if value == nil {
 		return
 	}
-	if m.Values == nil {
-		m.Values = map[string]interface{}{}
+	if m.values == nil {
+		m.values = map[string]interface{}{}
 	}
-	m.Values[key] = value
+	m.values[key] = value
 }
 
 // newMessage factory
@@ -254,7 +262,7 @@ func newMessage(cmd byte, method string, v interface{}, isError bool, isAsync bo
 		h = DefaultHandler
 	}
 
-	msg = &Message{Buffer: h.GetBuffer(HeadLen + bodyLen), Values: values}
+	msg = &Message{Buffer: h.GetBuffer(HeadLen + bodyLen), values: values}
 	msg.SetCmd(cmd)
 	msg.SetError(isError)
 	msg.SetAsync(isAsync)

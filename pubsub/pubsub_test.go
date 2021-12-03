@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wubbalubbaaa/arpc/log"
+	"github.com/wubbalubbaaabaaa/easyRpc/log"
 )
 
 func TestPubSub(t *testing.T) {

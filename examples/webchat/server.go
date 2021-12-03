@@ -8,9 +8,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/wubbalubbaaa/arpc"
-	"github.com/wubbalubbaaa/arpc/log"
-	"github.com/wubbalubbaaa/arpcext/websocket"
+	"github.com/lesismal/arpc"
+	"github.com/lesismal/arpc/log"
+	"github.com/lesismal/arpcext/websocket"
 )
 
 // Message .

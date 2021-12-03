@@ -4,7 +4,7 @@ import (
 	"log"
 
 	"github.com/anacrolix/utp"
-	"github.com/wubbalubbaaa/arpc"
+	"github.com/wubbalubbaaa/easyRpc"
 )
 
 func main() {
@@ -13,10 +13,10 @@ func main() {
 		log.Fatalf("failed to ListenUnix: %v", err)
 	}
 
-	svr := arpc.NewServer()
+	svr := easyRpc.NewServer()
 
 	// register router
-	svr.Handler.Handle("/echo", func(ctx *arpc.Context) {
+	svr.Handler.Handle("/echo", func(ctx *easyRpc.Context) {
 		str := ""
 		err := ctx.Bind(&str)
 		ctx.Write(str)

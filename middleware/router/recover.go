@@ -1,11 +1,13 @@
 package router
 
 import (
-	"github.com/wubbalubbaaa/arpc"
-	"github.com/wubbalubbaaa/arpc/util"
+	"github.com/lesismal/arpc"
+	"github.com/lesismal/arpc/util"
 )
 
-func Recover(ctx *arpc.Context) {
-	defer util.Recover()
-	ctx.Next()
+func Recover() arpc.HandlerFunc {
+	return func(ctx *arpc.Context) {
+		defer util.Recover()
+		ctx.Next()
+	}
 }

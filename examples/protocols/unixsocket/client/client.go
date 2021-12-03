@@ -5,11 +5,11 @@ import (
 	"net"
 	"time"
 
-	"github.com/wubbalubbaaa/arpc"
+	"github.com/wubbalubbaaa/easyRpc"
 )
 
 func main() {
-	client, err := arpc.NewClient(func() (net.Conn, error) {
+	client, err := easyRpc.NewClient(func() (net.Conn, error) {
 		addr, err := net.ResolveUnixAddr("unix", "bench.unixsock")
 		if err != nil {
 			return nil, err

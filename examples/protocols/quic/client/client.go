@@ -6,8 +6,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/wubbalubbaaa/arpc"
-	"github.com/wubbalubbaaa/arpcext/quic"
+	"github.com/lesismal/arpc"
+	"github.com/lesismal/arpcext/quic"
 )
 
 func main() {

@@ -2,8 +2,8 @@
 <html lang="en">
 
 <head>
-    <title>Arpc Chat Example</title>
-    <script src="arpc.js" type="text/javascript"></script>
+    <title>easyRpc Chat Example</title>
+    <script src="easyRpc.js" type="text/javascript"></script>
     <script type="text/javascript">
         window.onload = function () {
             var myId = '';
@@ -20,7 +20,7 @@
                 }
             }
 
-            var client = new ArpcClient("ws://localhost:8888/ws");
+            var client = new easyRpcClient("ws://localhost:8888/ws");
 
             client.onOpen = function () {
                 var item = document.createElement("div");
@@ -67,7 +67,7 @@
                 var item = document.createElement("div");
                 item.innerText = "server shutdown";
                 appendLog(item);
-                client.Shutdown()
+                client.Shutdown();
             });
 
             document.getElementById("form").onsubmit = function () {
@@ -77,7 +77,7 @@
                 if (!msgInput.value) {
                     return false;
                 }
-                client.Notify("/chat/user/say", msgInput.value)
+                client.Notify("/chat/user/say", msgInput.value);
                 msgInput.value = "";
                 return false;
             };

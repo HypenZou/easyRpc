@@ -19,6 +19,7 @@ var HeaderFlagMaskError = 0x01;
 var HeaderFlagMaskAsync = 0x02;
 
 var ErrClosed = "[client stopped]";
+var ErrDisconnected = "[error disconnected]";
 var ErrReconnecting = "[error reconnecting]";
 
 function Codec() {
@@ -49,7 +50,7 @@ function Context(cli, head, body, method, data, msgObj) {
 }
 
 
-function ArpcClient(url, codec) {
+function easyRpcClient(url, codec) {
     var client = this;
 
     this.ws;
@@ -94,8 +95,7 @@ function ArpcClient(url, codec) {
 
         if (timeout > 0) {
             session.timer = setTimeout(function () {
-                var isErr = 1;
-                delete (this.sessionMap[seq]);
+                delete (client.sessionMap[seq]);
                 session.resolve({ data: null, err: "timeout" });
             }, timeout);
         }
@@ -201,7 +201,7 @@ function ArpcClient(url, codec) {
                 }
 
                 if (methodLen == 0) {
-                    console.log("[ArpcClient] onMessage: invalid request message with 0 method length, dropped");
+                    console.log("[easyRpcClient] onMessage: invalid request message with 0 method length, dropped");
                     return
                 }
 
@@ -213,14 +213,16 @@ function ArpcClient(url, codec) {
                             var data = client.codec.Unmarshal(bodyArr);
                             handler.h(new Context(client, headArr, bodyArr, method, data));
                         } else {
-                            console.log("[ArpcClient] onMessage: invalid method: [%s], no handler", method);
+                            console.log("[easyRpcClient] onMessage: invalid method: [%s], no handler", method);
                             return
                         }
                         break;
                     case CmdResponse:
                         var session = client.sessionMap[seq];
                         if (session) {
-                            clearTimeout(session.timer);
+                            if (session.timer) {
+                                clearTimeout(session.timer);
+                            }
                             delete (client.sessionMap[seq]);
                             var data = client.codec.Unmarshal(bodyArr);
                             if (isError) {
@@ -229,7 +231,7 @@ function ArpcClient(url, codec) {
                             }
                             session.resolve({ data: data, err: null });
                         } else {
-                            console.log("[ArpcClient] onMessage: session [%d] missing", seq);
+                            console.log("[easyRpcClient] onMessage: session [%d] missing", seq);
                             return;
                         }
                         break;
@@ -239,12 +241,12 @@ function ArpcClient(url, codec) {
                 offset += 16 + bodyLen;
             }
         } catch (e) {
-            console.log("[ArpcClient] onMessage: panic:", e);
+            console.log("[easyRpcClient] onMessage: panic:", e);
         }
     }
 
     this.init = function () {
-        console.log("[ArpcClient] init...");
+        console.log("[easyRpcClient] init...");
         if ('WebSocket' in window) {
             client.ws = new WebSocket(this.url);
         } else if ('MozWebSocket' in window) {
@@ -260,18 +262,27 @@ function ArpcClient(url, codec) {
 
         client.ws.onopen = function (event) {
             client.state = SOCK_STATE_CONNECTED;
-            console.log("[ArpcClient] websocket onopen");
+            console.log("[easyRpcClient] websocket onopen");
             if (client.onOpen) {
                 client.onOpen(client);
             }
         };
         client.ws.onclose = function (event) {
-            console.log("[ArpcClient] websocket onclose");
+            console.log("[easyRpcClient] websocket onclose");
             if (client.onClose) {
                 client.onClose(client);
             }
             client.ws.close();
 
+            for (var k in client.sessionMap) {
+                var session = client.sessionMap[k];
+                if (session) {
+                    if (session.timer) {
+                        clearTimeout(session.timer);
+                    }
+                    session.resolve({ data: null, err: ErrDisconnected });
+                } 
+            }
             // shutdown
             if (client.state == SOCK_STATE_CLOSED) {
                 return;
@@ -280,7 +291,7 @@ function ArpcClient(url, codec) {
             client.init();
         };
         client.ws.onerror = function (event) {
-            console.log("[ArpcClient] websocket onerror");
+            console.log("[easyRpcClient] websocket onerror");
             if (client.onError) {
                 client.onError(client);
             }
@@ -291,6 +302,6 @@ function ArpcClient(url, codec) {
     try {
         this.init();
     } catch (e) {
-        console.log("[ArpcClient] init() failed:", e);
+        console.log("[easyRpcClient] init() failed:", e);
     }
 }

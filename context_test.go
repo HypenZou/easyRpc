@@ -1,4 +1,4 @@
-// Copyright 2020 wubbalubbaaa. All rights reserved.
+// Copyright 2020 lesismal. All rights reserved.
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
@@ -7,13 +7,17 @@ package arpc
 import (
 	"testing"
 
-	"github.com/wubbalubbaaa/arpc/codec"
+	"github.com/lesismal/arpc/codec"
 )
 
 func TestContext_Get(t *testing.T) {
 	ctx := &Context{}
 	if v, ok := ctx.Get("key"); ok {
 		t.Fatalf("Context.Get() error, returns %v, want nil", v)
+	}
+	values := ctx.Values()
+	if len(values) > 0 {
+		t.Fatalf("invalid Context.Values() length, returns %v, want 0", len(values))
 	}
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2020 wubbalubbaaa. All rights reserved.
+// Copyright 2020 lesismal. All rights reserved.
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
@@ -10,8 +10,8 @@ import (
 	"io"
 	"net"
 
-	"github.com/wubbalubbaaa/arpc/log"
-	"github.com/wubbalubbaaa/arpc/util"
+	"github.com/lesismal/arpc/log"
+	"github.com/lesismal/arpc/util"
 )
 
 // DefaultHandler instance
