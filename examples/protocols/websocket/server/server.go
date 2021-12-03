@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wubbalubbaaa/easyRpc"
-	"github.com/wubbalubbaaa/easyRpcext/websocket"
+	"github.com/wubbalubbaaa/arpc"
+	"github.com/wubbalubbaaa/arpcext/websocket"
 )
 
 func main() {
@@ -19,22 +19,22 @@ func main() {
 		}
 	}()
 
-	svr := easyRpc.NewServer()
+	svr := arpc.NewServer()
 	// register router
-	svr.Handler.Handle("/call/echo", func(ctx *easyRpc.Context) {
+	svr.Handler.Handle("/call/echo", func(ctx *arpc.Context) {
 		str := ""
 		err := ctx.Bind(&str)
 		ctx.Write(str)
 		log.Printf("/call/echo: \"%v\", error: %v", str, err)
 	})
 
-	svr.Handler.Handle("/notify", func(ctx *easyRpc.Context) {
+	svr.Handler.Handle("/notify", func(ctx *arpc.Context) {
 		str := ""
 		err := ctx.Bind(&str)
 		log.Printf("/notify: \"%v\", error: %v", str, err)
 	})
 
-	svr.Handler.HandleConnected(func(c *easyRpc.Client) {
+	svr.Handler.HandleConnected(func(c *arpc.Client) {
 		// go c.Call("/server/call", "server call", 0)
 		go c.Notify("/server/notify", time.Now().Format("Welcome! Now Is: 2006-01-02 15:04:05.000"), 0)
 	})

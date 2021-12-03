@@ -3,14 +3,14 @@ package main
 import (
 	"log"
 
-	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbaaa/arpc"
 )
 
 func main() {
-	svr := easyRpc.NewServer()
+	svr := arpc.NewServer()
 
 	// register router
-	svr.Handler.Handle("/echo", func(ctx *easyRpc.Context) {
+	svr.Handler.Handle("/echo", func(ctx *arpc.Context) {
 		str := ""
 		err := ctx.Bind(&str)
 		ctx.Write(str)

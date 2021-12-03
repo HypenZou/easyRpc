@@ -2,7 +2,7 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-package easyRpc
+package arpc
 
 import (
 	"bufio"
@@ -10,8 +10,8 @@ import (
 	"io"
 	"net"
 
-	"github.com/wubbalubbaaa/easyRpc/log"
-	"github.com/wubbalubbaaa/easyRpc/util"
+	"github.com/wubbalubbaaa/arpc/log"
+	"github.com/wubbalubbaaa/arpc/util"
 )
 
 // DefaultHandler instance
@@ -521,10 +521,10 @@ func (h *handler) SetBufferFactory(f func(int) []byte) {
 // NewHandler factory
 func NewHandler() Handler {
 	h := &handler{
-		logtag:         "[easyRpc CLI]",
+		logtag:         "[ARPC CLI]",
 		batchRecv:      true,
 		batchSend:      true,
-		asyncResponse:  true,
+		asyncResponse:  false,
 		recvBufferSize: 8192,
 		sendQueueSize:  4096,
 	}

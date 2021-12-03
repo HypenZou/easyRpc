@@ -6,12 +6,12 @@ import (
 	"net"
 	"time"
 
-	"github.com/wubbalubbaaa/easyRpc"
-	"github.com/wubbalubbaaa/easyRpcext/quic"
+	"github.com/wubbalubbaaa/arpc"
+	"github.com/wubbalubbaaa/arpcext/quic"
 )
 
 func main() {
-	client, err := easyRpc.NewClient(func() (net.Conn, error) {
+	client, err := arpc.NewClient(func() (net.Conn, error) {
 		tlsConf := &tls.Config{
 			InsecureSkipVerify: true,
 			NextProtos:         []string{"quic-echo-example"},

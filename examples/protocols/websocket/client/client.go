@@ -5,18 +5,18 @@ import (
 	"net"
 	"time"
 
-	"github.com/wubbalubbaaa/easyRpc"
-	"github.com/wubbalubbaaa/easyRpcext/websocket"
+	"github.com/wubbalubbaaa/arpc"
+	"github.com/wubbalubbaaa/arpcext/websocket"
 )
 
 func main() {
-	easyRpc.DefaultHandler.Handle("/server/notify", func(ctx *easyRpc.Context) {
+	arpc.DefaultHandler.Handle("/server/notify", func(ctx *arpc.Context) {
 		str := ""
 		err := ctx.Bind(&str)
 		log.Printf("/server/notify: \"%v\", error: %v", str, err)
 	})
 
-	client, err := easyRpc.NewClient(func() (net.Conn, error) {
+	client, err := arpc.NewClient(func() (net.Conn, error) {
 		return websocket.Dial("ws://localhost:8888/ws")
 	})
 	if err != nil {

@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/anacrolix/utp"
-	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbaaa/arpc"
 )
 
 func main() {
-	client, err := easyRpc.NewClient(func() (net.Conn, error) {
+	client, err := arpc.NewClient(func() (net.Conn, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		return utp.DialContext(ctx, "localhost:8888")

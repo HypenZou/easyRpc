@@ -3,14 +3,14 @@ package main
 import (
 	"log"
 
-	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbaaa/arpc"
 )
 
 func main() {
-	svr := easyRpc.NewServer()
+	svr := arpc.NewServer()
 
 	// register router
-	svr.Handler.Handle("/echo/sync", func(ctx *easyRpc.Context) {
+	svr.Handler.Handle("/echo/sync", func(ctx *arpc.Context) {
 		str := ""
 		err := ctx.Bind(&str)
 		ctx.Write(str)
@@ -18,7 +18,7 @@ func main() {
 	})
 
 	// register router
-	svr.Handler.Handle("/echo/async", func(ctx *easyRpc.Context) {
+	svr.Handler.Handle("/echo/async", func(ctx *arpc.Context) {
 		str := ""
 		err := ctx.Bind(&str)
 		go ctx.Write(str)

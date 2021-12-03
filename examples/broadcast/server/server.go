@@ -6,16 +6,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbaaa/arpc"
 )
 
 var mux = sync.RWMutex{}
-var server = easyRpc.NewServer()
-var clientMap = make(map[*easyRpc.Client]struct{})
+var server = arpc.NewServer()
+var clientMap = make(map[*arpc.Client]struct{})
 
 func main() {
 
-	server.Handler.Handle("/enter", func(ctx *easyRpc.Context) {
+	server.Handler.Handle("/enter", func(ctx *arpc.Context) {
 		passwd := ""
 		ctx.Bind(&passwd)
 		if passwd == "123qwe" {
@@ -31,7 +31,7 @@ func main() {
 		}
 	})
 	// release client
-	server.Handler.HandleDisconnected(func(c *easyRpc.Client) {
+	server.Handler.HandleDisconnected(func(c *arpc.Client) {
 		mux.Lock()
 		delete(clientMap, c)
 		mux.Unlock()
@@ -49,10 +49,10 @@ func main() {
 }
 
 func broadcast(i int) {
-	msg := server.NewMessage(easyRpc.CmdNotify, "/broadcast", fmt.Sprintf("broadcast msg %d", i))
+	msg := server.NewMessage(arpc.CmdNotify, "/broadcast", fmt.Sprintf("broadcast msg %d", i))
 	mux.RLock()
 	for client := range clientMap {
-		client.PushMsg(msg, easyRpc.TimeZero)
+		client.PushMsg(msg, arpc.TimeZero)
 	}
 	mux.RUnlock()
 }

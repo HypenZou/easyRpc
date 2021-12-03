@@ -9,14 +9,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wubbalubbaaa/easyRpc"
-	"github.com/wubbalubbaaa/easyRpc/log"
-	"github.com/wubbalubbaaa/easyRpc/util"
+	"github.com/wubbalubbaaa/arpc"
+	"github.com/wubbalubbaaa/arpc/log"
+	"github.com/wubbalubbaaa/arpc/util"
 )
 
 // Client .
 type Client struct {
-	*easyRpc.Client
+	*arpc.Client
 
 	Password string
 
@@ -164,7 +164,7 @@ func (c *Client) initTopics() {
 	c.psmux.RUnlock()
 }
 
-func (c *Client) onPublish(ctx *easyRpc.Context) {
+func (c *Client) onPublish(ctx *arpc.Context) {
 	defer util.Recover()
 
 	topic := &Topic{}
@@ -194,7 +194,7 @@ func (c *Client) onPublish(ctx *easyRpc.Context) {
 
 // NewClient .
 func NewClient(dialer func() (net.Conn, error)) (*Client, error) {
-	c, err := easyRpc.NewClient(dialer)
+	c, err := arpc.NewClient(dialer)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +205,7 @@ func NewClient(dialer func() (net.Conn, error)) (*Client, error) {
 	}
 	cli.Handler = cli.Handler.Clone()
 	cli.Handler.Handle(routePublish, cli.onPublish)
-	cli.Handler.HandleConnected(func(c *easyRpc.Client) {
+	cli.Handler.HandleConnected(func(c *arpc.Client) {
 		if cli.Authenticate() == nil {
 			cli.initTopics()
 		}

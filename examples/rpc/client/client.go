@@ -5,11 +5,11 @@ import (
 	"net"
 	"time"
 
-	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbaaa/arpc"
 )
 
 func main() {
-	client, err := easyRpc.NewClient(func() (net.Conn, error) {
+	client, err := arpc.NewClient(func() (net.Conn, error) {
 		return net.DialTimeout("tcp", "localhost:8888", time.Second*3)
 	})
 	if err != nil {
@@ -32,7 +32,7 @@ func main() {
 		log.Printf("Call /echo/async Response: \"%v\"", rsp)
 	}
 	done := make(chan string)
-	err = client.CallAsync("/echo/async", &req, func(ctx *easyRpc.Context) {
+	err = client.CallAsync("/echo/async", &req, func(ctx *arpc.Context) {
 		rsp := ""
 		err = ctx.Bind(&rsp)
 		if err != nil {

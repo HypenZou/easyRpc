@@ -5,8 +5,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/wubbalubbaaa/easyRpc/log"
-	"github.com/wubbalubbaaa/easyRpc/pubsub"
+	"github.com/wubbalubbaaa/arpc/log"
+	"github.com/wubbalubbaaa/arpc/pubsub"
 )
 
 var (

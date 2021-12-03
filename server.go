@@ -2,7 +2,7 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-package easyRpc
+package arpc
 
 import (
 	"context"
@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wubbalubbaaa/easyRpc/codec"
-	"github.com/wubbalubbaaa/easyRpc/log"
-	"github.com/wubbalubbaaa/easyRpc/util"
+	"github.com/wubbalubbaaa/arpc/codec"
+	"github.com/wubbalubbaaa/arpc/log"
+	"github.com/wubbalubbaaa/arpc/util"
 )
 
 // Server definition
@@ -165,7 +165,7 @@ func (s *Server) runLoop() error {
 // NewServer factory
 func NewServer() *Server {
 	h := DefaultHandler.Clone()
-	h.SetLogTag("[easyRpc SVR]")
+	h.SetLogTag("[ARPC SVR]")
 	return &Server{
 		Codec:   codec.DefaultCodec,
 		Handler: h,

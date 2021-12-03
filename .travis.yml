@@ -11,7 +11,7 @@ before_install:
     - go get -u -t -v .
 
 install:
-    - go get -u github.com/wubbalubbaaa/easyRpc
+    - go get -u github.com/wubbalubbaaa/arpc
 
 script:
     - go test -coverprofile=coverage.txt -covermode=atomic -v -bench .

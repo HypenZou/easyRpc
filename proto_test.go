@@ -2,13 +2,13 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-package easyRpc
+package arpc
 
 import (
 	"reflect"
 	"testing"
 
-	"github.com/wubbalubbaaa/easyRpc/codec"
+	"github.com/wubbalubbaaa/arpc/codec"
 )
 
 func TestHeader_BodyLen(t *testing.T) {
@@ -98,7 +98,7 @@ func TestMessage_Error(t *testing.T) {
 
 func TestMessage_SetFlagBit(t *testing.T) {
 	msg := newMessage(CmdRequest, "hello", "hello", false, false, 0, DefaultHandler, codec.DefaultCodec, nil)
-	for i := 0; i <= 9; i++ {
+	for i := 0; i < 8; i++ {
 		if err := msg.SetFlagBit(i, true); err != nil {
 			t.Fatalf("Message.SetFlagBit() error: %v, want nil", err)
 		}
@@ -112,7 +112,7 @@ func TestMessage_SetFlagBit(t *testing.T) {
 
 func TestMessage_IsFlagBitSet(t *testing.T) {
 	msg := newMessage(CmdRequest, "hello", "hello", false, false, 0, DefaultHandler, codec.DefaultCodec, nil)
-	for i := 0; i <= 9; i++ {
+	for i := 0; i < 8; i++ {
 		if err := msg.SetFlagBit(i, true); err != nil {
 			t.Fatalf("Message.SetFlagBit() error: %v, want nil", err)
 		}
@@ -127,7 +127,7 @@ func TestMessage_IsFlagBitSet(t *testing.T) {
 			t.Fatalf("Message.GetFlagBit() returns true, want false")
 		}
 	}
-	for i := 10; i < 16; i++ {
+	for i := 8; i < 16; i++ {
 		if err := msg.SetFlagBit(i, true); err == nil {
 			t.Fatalf("Message.SetFlagBit() returns nil error, want %v", ErrInvalidFlagBitIndex)
 		}
@@ -191,13 +191,22 @@ func TestMessage_Get(t *testing.T) {
 }
 
 func TestMessage_Set(t *testing.T) {
+	key := "key"
+	value := "value"
+
 	msg := &Message{}
-	msg.Set("key", nil)
-	if v, ok := msg.Get("key"); ok {
-		t.Fatalf("Message.Get() error, returns %v, want nil", v)
+	msg.Set(key, nil)
+	cv, ok := msg.Get(key)
+	if ok {
+		t.Fatalf("Message.Get() failed: Get '%v', want nil", cv)
 	}
-	msg.Set("key", "value")
-	if v, ok := msg.Get("key"); !ok || v != "value" {
-		t.Fatalf("Message.Get() error, returns '%v', want 'value'", v)
+
+	msg.Set(key, value)
+	cv, ok = msg.Get(key)
+	if !ok {
+		t.Fatalf("Message.Get() failed: Get nil, want '%v'", value)
+	}
+	if cv != value {
+		t.Fatalf("Message.Get() failed: Get '%v', want '%v'", cv, value)
 	}
 }

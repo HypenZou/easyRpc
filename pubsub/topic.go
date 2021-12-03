@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wubbalubbaaa/easyRpc"
-	"github.com/wubbalubbaaa/easyRpc/log"
-	"github.com/wubbalubbaaa/easyRpc/util"
+	"github.com/wubbalubbaaa/arpc"
+	"github.com/wubbalubbaaa/arpc/log"
+	"github.com/wubbalubbaaa/arpc/util"
 )
 
 const (
@@ -74,29 +74,29 @@ type TopicAgent struct {
 
 	mux sync.RWMutex
 
-	clients map[*easyRpc.Client]util.Empty
+	clients map[*arpc.Client]util.Empty
 }
 
 // Add .
-func (t *TopicAgent) Add(c *easyRpc.Client) {
+func (t *TopicAgent) Add(c *arpc.Client) {
 	t.mux.Lock()
 	t.clients[c] = util.Empty{}
 	t.mux.Unlock()
 }
 
 // Delete .
-func (t *TopicAgent) Delete(c *easyRpc.Client) {
+func (t *TopicAgent) Delete(c *arpc.Client) {
 	t.mux.Lock()
 	delete(t.clients, c)
 	t.mux.Unlock()
 }
 
 // Publish .
-func (t *TopicAgent) Publish(s *Server, from *easyRpc.Client, topic *Topic) {
-	msg := s.NewMessage(easyRpc.CmdNotify, routePublish, topic.raw)
+func (t *TopicAgent) Publish(s *Server, from *arpc.Client, topic *Topic) {
+	msg := s.NewMessage(arpc.CmdNotify, routePublish, topic.raw)
 	t.mux.RLock()
 	for to := range t.clients {
-		err := to.PushMsg(msg, easyRpc.TimeZero)
+		err := to.PushMsg(msg, arpc.TimeZero)
 		if err != nil {
 			if from != nil {
 				log.Error("[Publish] [topic: '%v'] failed %v, from\t%v\tto\t%v", topic.Name, err, from.Conn.RemoteAddr(), to.Conn.RemoteAddr())
@@ -114,11 +114,11 @@ func (t *TopicAgent) Publish(s *Server, from *easyRpc.Client, topic *Topic) {
 }
 
 // PublishToOne .
-func (t *TopicAgent) PublishToOne(s *Server, from *easyRpc.Client, topic *Topic) {
-	msg := s.NewMessage(easyRpc.CmdNotify, routePublish, topic.raw)
+func (t *TopicAgent) PublishToOne(s *Server, from *arpc.Client, topic *Topic) {
+	msg := s.NewMessage(arpc.CmdNotify, routePublish, topic.raw)
 	t.mux.RLock()
 	for to := range t.clients {
-		err := to.PushMsg(msg, easyRpc.TimeZero)
+		err := to.PushMsg(msg, arpc.TimeZero)
 		if err != nil {
 			if from != nil {
 				log.Error("[PublishToOne] [topic: '%v'] failed %v, from\t%v\tto\t%v", topic.Name, err, from.Conn.RemoteAddr(), to.Conn.RemoteAddr())
@@ -140,6 +140,6 @@ func (t *TopicAgent) PublishToOne(s *Server, from *easyRpc.Client, topic *Topic)
 func newTopicAgent(topic string) *TopicAgent {
 	return &TopicAgent{
 		Name:    topic,
-		clients: map[*easyRpc.Client]util.Empty{},
+		clients: map[*arpc.Client]util.Empty{},
 	}
 }

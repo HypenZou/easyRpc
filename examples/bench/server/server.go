@@ -4,7 +4,7 @@ import (
 	"log"
 	"net"
 
-	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbaaa/arpc"
 )
 
 const (
@@ -24,7 +24,7 @@ type HelloRsp struct {
 }
 
 // OnHello .
-func OnHello(ctx *easyRpc.Context) {
+func OnHello(ctx *arpc.Context) {
 	req := &HelloReq{}
 	ctx.Bind(req)
 	ctx.Write(&HelloRsp{Msg: req.Msg})
@@ -36,7 +36,7 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	svr := easyRpc.NewServer()
+	svr := arpc.NewServer()
 	svr.Handler.Handle("Hello", OnHello)
 	svr.Serve(ln)
 }

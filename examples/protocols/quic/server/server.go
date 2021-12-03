@@ -9,8 +9,8 @@ import (
 	"log"
 	"math/big"
 
-	"github.com/wubbalubbaaa/easyRpc"
-	"github.com/wubbalubbaaa/easyRpcext/quic"
+	"github.com/wubbalubbaaa/arpc"
+	"github.com/wubbalubbaaa/arpcext/quic"
 )
 
 func main() {
@@ -18,10 +18,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
-	svr := easyRpc.NewServer()
+	svr := arpc.NewServer()
 
 	// register router
-	svr.Handler.Handle("/echo", func(ctx *easyRpc.Context) {
+	svr.Handler.Handle("/echo", func(ctx *arpc.Context) {
 		str := ""
 		err := ctx.Bind(&str)
 		ctx.Write(str)

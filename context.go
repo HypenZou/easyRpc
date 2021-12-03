@@ -2,11 +2,11 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-package easyRpc
+package arpc
 
 import (
 	"time"
-	// "github.com/wubbalubbaaa/easyRpc/util"
+	// "github.com/wubbalubbaaa/arpc/util"
 )
 
 // Context definition

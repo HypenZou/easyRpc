@@ -1,4 +1,4 @@
-package easyRpc
+package arpc
 
 // WebsocketConn .
 type WebsocketConn interface {

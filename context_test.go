@@ -2,12 +2,12 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-package easyRpc
+package arpc
 
 import (
 	"testing"
 
-	"github.com/wubbalubbaaa/easyRpc/codec"
+	"github.com/wubbalubbaaa/arpc/codec"
 )
 
 func TestContext_Get(t *testing.T) {
@@ -25,7 +25,7 @@ func TestContext_Set(t *testing.T) {
 	ctx.Set(key, nil)
 	cv, ok := ctx.Get(key)
 	if ok {
-		t.Fatalf("Context.Get() failed: Get '%v', want nil", value)
+		t.Fatalf("Context.Get() failed: Get '%v', want nil", cv)
 	}
 
 	ctx.Set(key, value)

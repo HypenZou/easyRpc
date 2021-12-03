@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbaaa/arpc"
 )
 
 const (
@@ -19,7 +19,7 @@ const (
 var notifyCount = 3
 
 // OnServerNotify .
-func OnServerNotify(ctx *easyRpc.Context) {
+func OnServerNotify(ctx *arpc.Context) {
 	ret := ""
 	ctx.Bind(&ret)
 	log.Printf("OnServerNotify: \"%v\"", ret)
@@ -34,7 +34,7 @@ func dialer() (net.Conn, error) {
 }
 
 func main() {
-	client, err := easyRpc.NewClient(dialer)
+	client, err := arpc.NewClient(dialer)
 	if err != nil {
 		log.Println("NewClient failed:", err)
 		return

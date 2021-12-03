@@ -5,11 +5,11 @@ import (
 	"net"
 	"time"
 
-	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbaaa/arpc"
 )
 
 func main() {
-	pool, err := easyRpc.NewClientPool(func() (net.Conn, error) {
+	pool, err := arpc.NewClientPool(func() (net.Conn, error) {
 		return net.DialTimeout("tcp", "localhost:8888", time.Second*3)
 	}, 5)
 	if err != nil {

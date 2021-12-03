@@ -7,9 +7,9 @@ package pubsub
 import (
 	"sync"
 
-	"github.com/wubbalubbaaa/easyRpc"
-	"github.com/wubbalubbaaa/easyRpc/log"
-	"github.com/wubbalubbaaa/easyRpc/util"
+	"github.com/wubbalubbaaa/arpc"
+	"github.com/wubbalubbaaa/arpc/log"
+	"github.com/wubbalubbaaa/arpc/util"
 )
 
 var (
@@ -23,7 +23,7 @@ type clientTopics struct {
 
 // Server .
 type Server struct {
-	*easyRpc.Server
+	*arpc.Server
 
 	Password string
 
@@ -31,7 +31,7 @@ type Server struct {
 
 	topics map[string]*TopicAgent
 
-	clients map[*easyRpc.Client]map[string]*TopicAgent
+	clients map[*arpc.Client]map[string]*TopicAgent
 }
 
 // Publish topic
@@ -62,11 +62,11 @@ func (s *Server) PublishToOne(topicName string, v interface{}) error {
 	return nil
 }
 
-func (s *Server) invalid(ctx *easyRpc.Context) bool {
+func (s *Server) invalid(ctx *arpc.Context) bool {
 	return ctx.Client.UserData == nil
 }
 
-func (s *Server) onAuthenticate(ctx *easyRpc.Context) {
+func (s *Server) onAuthenticate(ctx *arpc.Context) {
 	defer util.Recover()
 
 	passwd := ""
@@ -87,7 +87,7 @@ func (s *Server) onAuthenticate(ctx *easyRpc.Context) {
 	}
 }
 
-func (s *Server) onSubscribe(ctx *easyRpc.Context) {
+func (s *Server) onSubscribe(ctx *arpc.Context) {
 	defer util.Recover()
 
 	if s.invalid(ctx) {
@@ -124,7 +124,7 @@ func (s *Server) onSubscribe(ctx *easyRpc.Context) {
 	}
 }
 
-func (s *Server) onUnsubscribe(ctx *easyRpc.Context) {
+func (s *Server) onUnsubscribe(ctx *arpc.Context) {
 	defer util.Recover()
 
 	if s.invalid(ctx) {
@@ -159,7 +159,7 @@ func (s *Server) onUnsubscribe(ctx *easyRpc.Context) {
 	}
 }
 
-func (s *Server) onPublish(ctx *easyRpc.Context) {
+func (s *Server) onPublish(ctx *arpc.Context) {
 	defer util.Recover()
 
 	if s.invalid(ctx) {
@@ -186,7 +186,7 @@ func (s *Server) onPublish(ctx *easyRpc.Context) {
 	}
 }
 
-func (s *Server) onPublishToOne(ctx *easyRpc.Context) {
+func (s *Server) onPublishToOne(ctx *arpc.Context) {
 	defer util.Recover()
 
 	if s.invalid(ctx) {
@@ -236,13 +236,13 @@ func (s *Server) getOrMakeTopic(topic string) *TopicAgent {
 }
 
 // addClient .
-func (s *Server) addClient(c *easyRpc.Client) {
+func (s *Server) addClient(c *arpc.Client) {
 	c.UserData = &clientTopics{
 		topicAgents: map[string]*TopicAgent{},
 	}
 }
 
-func (s *Server) deleteClient(c *easyRpc.Client) {
+func (s *Server) deleteClient(c *arpc.Client) {
 	if c.UserData == nil {
 		return
 	}
@@ -260,11 +260,11 @@ func (s *Server) deleteClient(c *easyRpc.Client) {
 
 // NewServer .
 func NewServer() *Server {
-	s := easyRpc.NewServer()
+	s := arpc.NewServer()
 	svr := &Server{
 		Server:  s,
 		topics:  map[string]*TopicAgent{},
-		clients: map[*easyRpc.Client]map[string]*TopicAgent{},
+		clients: map[*arpc.Client]map[string]*TopicAgent{},
 	}
 	s.Handler.SetLogTag("[APS SVR]")
 	svr.Handler.Handle(routeAuthenticate, svr.onAuthenticate)
