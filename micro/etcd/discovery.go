@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
-	"github.com/lesismal/arpc/log"
-	"github.com/lesismal/arpc/micro"
-	"github.com/lesismal/arpc/util"
+	"github.com/wubbalubbaaa/easyRpc/log"
+	"github.com/wubbalubbeasyRpcaaa/easyRpc/micro"
+	"github.com/wubbalubbeasyRpcaaa/easyRpc/util"
 )
 
 // Discovery .

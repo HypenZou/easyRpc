@@ -5,55 +5,68 @@
 package easyRpc
 
 import (
+	"math"
+	"sync"
 	"time"
 )
 
-// Context definition
+var (
+	contextPool = sync.Pool{
+		New: func() interface{} {
+			return &Context{}
+		},
+	}
+
+	emptyContext = Context{}
+)
+
+// Context represents an easyRpc Call's context.
 type Context struct {
 	Client  *Client
 	Message *Message
-	values  map[string]interface{}
 
-	err      interface{}
-	response []interface{}
-	timeout  time.Duration
-
-	done     bool
 	index    int
 	handlers []HandlerFunc
 }
 
-// Get returns value for key
-func (ctx *Context) Get(key string) (interface{}, bool) {
-	if len(ctx.values) == 0 {
+func (ctx *Context) Release() {
+	ctx.Message.ReleaseAndPayback(ctx.Client.Handler)
+	*ctx = emptyContext
+	contextPool.Put(ctx)
+}
+
+// Get returns value for key.
+func (ctx *Context) Get(key interface{}) (interface{}, bool) {
+	if len(ctx.Message.values) == 0 {
 		return nil, false
 	}
-	value, ok := ctx.values[key]
+	value, ok := ctx.Message.values[key]
 	return value, ok
 }
 
-// Set sets key-value pair
-func (ctx *Context) Set(key string, value interface{}) {
-	if value == nil {
+// Set sets key-value pair.
+func (ctx *Context) Set(key interface{}, value interface{}) {
+	if key == nil || value == nil {
 		return
 	}
-	if ctx.values == nil {
-		ctx.values = map[string]interface{}{}
+	if ctx.Message.values == nil {
+		ctx.Message.values = map[interface{}]interface{}{}
 	}
-	ctx.values[key] = value
+	ctx.Message.values[key] = value
 }
 
-// Values returns values
-func (ctx *Context) Values() map[string]interface{} {
-	return ctx.values
+// Values returns values.
+func (ctx *Context) Values() map[interface{}]interface{} {
+	return ctx.Message.values
 }
 
-// Body returns body
+// Body returns body.
 func (ctx *Context) Body() []byte {
 	return ctx.Message.Data()
 }
 
-// Bind body data to struct
+// Bind parses the body data and stores the result
+// in the value pointed to by v.
 func (ctx *Context) Bind(v interface{}) error {
 	msg := ctx.Message
 	if msg.IsError() {
@@ -75,39 +88,73 @@ func (ctx *Context) Bind(v interface{}) error {
 	return nil
 }
 
-// Write responses message to client
+// Write responses a Message to the Client.
 func (ctx *Context) Write(v interface{}) error {
 	return ctx.write(v, false, TimeForever)
 }
 
-// WriteWithTimeout responses message to client with timeout
+// WriteWithTimeout responses a Message to the Client with timeout.
 func (ctx *Context) WriteWithTimeout(v interface{}, timeout time.Duration) error {
 	return ctx.write(v, false, timeout)
 }
 
-// Error responses error message to client
+// Error responses an error Message to the Client.
 func (ctx *Context) Error(v interface{}) error {
-	return ctx.write(v, true, TimeForever)
+	return ctx.write(v, v != nil, TimeForever)
 }
 
-// Next .
+// Next calls next middleware or method/router handler.
 func (ctx *Context) Next() {
-	ctx.index++
-	if !ctx.done && ctx.index < len(ctx.handlers) {
-		ctx.handlers[ctx.index](ctx)
+	index := int(ctx.index)
+	if index < len(ctx.handlers) {
+		ctx.index++
+		ctx.handlers[index](ctx)
 	}
-	// for !ctx.done && ctx.index < len(ctx.handlers) {
-	// 	ctx.handlers[ctx.index](ctx)
-	// 	ctx.index++
-	// }
 }
 
-// Done .
-func (ctx *Context) Done() {
-	ctx.done = true
+// Abort stops the one-by-one-calling of middlewares and method/router handler.
+func (ctx *Context) Abort() {
+	ctx.index = int(math.MaxInt8)
+}
+
+// Deadline implements stdlib's Context.
+func (ctx *Context) Deadline() (deadline time.Time, ok bool) {
+	return
+}
+
+// Done implements stdlib's Context.
+func (ctx *Context) Done() <-chan struct{} {
+	return nil
+}
+
+// Err implements stdlib's Context.
+func (ctx *Context) Err() error {
+	return nil
+}
+
+// Value returns the value associated with this context for key, implements stdlib's Context.
+func (ctx *Context) Value(key interface{}) interface{} {
+	value, _ := ctx.Get(key)
+	return value
 }
 
 func (ctx *Context) write(v interface{}, isError bool, timeout time.Duration) error {
+	cli := ctx.Client
+	if !cli.Handler.AsyncWrite() {
+		return ctx.writeDirectly(v, isError)
+	}
+	req := ctx.Message
+	if req.Cmd() != CmdRequest {
+		return ErrContextResponseToNotify
+	}
+	if _, ok := v.(error); ok {
+		isError = true
+	}
+	rsp := newMessage(CmdResponse, req.method(), v, isError, req.IsAsync(), req.Seq(), cli.Handler, cli.Codec, ctx.Message.values)
+	return cli.PushMsg(rsp, timeout)
+}
+
+func (ctx *Context) writeDirectly(v interface{}, isError bool) error {
 	cli := ctx.Client
 	req := ctx.Message
 	if req.Cmd() != CmdRequest {
@@ -116,10 +163,27 @@ func (ctx *Context) write(v interface{}, isError bool, timeout time.Duration) er
 	if _, ok := v.(error); ok {
 		isError = true
 	}
-	rsp := newMessage(CmdResponse, req.method(), v, isError, req.IsAsync(), req.Seq(), cli.Handler, cli.Codec, ctx.values)
-	return cli.PushMsg(rsp, ctx.timeout)
+	rsp := newMessage(CmdResponse, req.method(), v, isError, req.IsAsync(), req.Seq(), cli.Handler, cli.Codec, ctx.Message.values)
+	if !cli.reconnecting {
+		coders := cli.Handler.Coders()
+		for j := 0; j < len(coders); j++ {
+			rsp = coders[j].Encode(cli, rsp)
+		}
+		_, err := cli.Handler.Send(cli.Conn, rsp.Buffer)
+		if err != nil {
+			cli.Conn.Close()
+		}
+		return err
+	}
+	cli.dropMessage(rsp)
+	return ErrClientReconnecting
 }
 
 func newContext(cli *Client, msg *Message, handlers []HandlerFunc) *Context {
-	return &Context{Client: cli, Message: msg, values: msg.values, done: false, index: -1, handlers: handlers}
+	ctx := contextPool.Get().(*Context)
+	ctx.Client = cli
+	ctx.Message = msg
+	ctx.Message.values = msg.values
+	ctx.handlers = handlers
+	return ctx
 }

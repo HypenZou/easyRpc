@@ -1,21 +1,21 @@
 package main
 
 import (
-	"github.com/lesismal/arpc"
-	"github.com/lesismal/arpc/log"
-	"github.com/lesismal/arpc/middleware/coder/gzip"
+	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbaaa/easyRpc/extension/middleware/coder/gzip"
+	"github.com/wubbalubbaaa/easyRpc/log"
 )
 
 func main() {
-	svr := arpc.NewServer()
+	svr := easyRpc.NewServer()
 
-	svr.Handler.UseCoder(gzip.New())
+	svr.Handler.UseCoder(gzip.New(1024))
 
 	// register router
-	svr.Handler.Handle("/echo", func(ctx *arpc.Context) {
+	svr.Handler.Handle("/echo", func(ctx *easyRpc.Context) {
 		ctx.Write(ctx.Body())
 		log.Info("/echo")
 	})
 
-	svr.Run(":8888")
+	svr.Run("localhost:8888")
 }

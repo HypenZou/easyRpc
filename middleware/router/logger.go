@@ -3,12 +3,11 @@ package router
 import (
 	"time"
 
-	"github.com/lesismal/arpc"
-	"github.com/lesismal/arpc/log"
+	"github.com/wubbalubbeasyRpcaaa/easyRpc/log"
 )
 
-func Logger() arpc.HandlerFunc {
-	return func(ctx *arpc.Context) {
+func Logger() easyRpcRpc.HandlerFunc {
+	return func(ctx *easyRpcRpc.Context) {
 		t := time.Now()
 
 		ctx.Next()
@@ -19,7 +18,7 @@ func Logger() arpc.HandlerFunc {
 		cost := time.Since(t).Milliseconds()
 
 		switch cmd {
-		case arpc.CmdRequest, arpc.CmdNotify:
+		case easyRpcRpc.CmdRequeseasyRpcasyRpc.CmdNotify:
 			log.Info("'%v',\t%v,\t%v ms cost", method, addr, cost)
 			break
 		default:

@@ -5,12 +5,12 @@ import (
 	"net"
 	"time"
 
-	"github.com/lesismal/arpc"
-	"github.com/lesismal/arpc/middleware/coder/gzip"
+	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbaaa/easyRpc/extension/middleware/coder/gzip"
 )
 
 func main() {
-	client, err := arpc.NewClient(func() (net.Conn, error) {
+	client, err := easyRpc.NewClient(func() (net.Conn, error) {
 		return net.DialTimeout("tcp", "localhost:8888", time.Second*3)
 	})
 	if err != nil {
@@ -18,7 +18,7 @@ func main() {
 	}
 	defer client.Stop()
 
-	client.Handler.UseCoder(gzip.New())
+	client.Handler.UseCoder(gzip.New(1024))
 
 	req := ""
 	for i := 0; i < 2048; i++ {

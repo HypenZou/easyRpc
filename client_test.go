@@ -26,6 +26,7 @@ var (
 	methodNotifyWith   = "/notifywith"
 	methodCallError    = "/callerror"
 	methodCallNotFound = "/notfound"
+	methodCallTimeout  = "/timeout"
 	methodInvalidLong  = `1234567890
 						1234567890
 						1234567890
@@ -91,7 +92,6 @@ func init() {
 	log.Println("AsyncResponse:", AsyncResponse())
 	log.Println("RecvBufferSize:", RecvBufferSize())
 	log.Println("SendQueueSize:", SendQueueSize())
-
 }
 
 func initServer() {
@@ -132,14 +132,21 @@ func initServer() {
 		ctx.Bind(nil)
 	}, false)
 	testServer.Handler.Handle(methodNotifyWith, func(ctx *Context) {
-		ctx.Bind(nil)
 	}, false)
 	testServer.Handler.Handle(methodCallError, func(ctx *Context) {
-		ctx.Bind(nil)
 		ctx.Error(ctx.Message.Data())
 	}, false)
-	go testServer.Run(testClientServerAddr)
-	time.Sleep(time.Second / 10)
+	testServer.Handler.Handle(methodCallTimeout, func(ctx *Context) {
+		str := ""
+		ctx.Bind(&str)
+		time.Sleep(time.Second / 5)
+		ctx.Write(str)
+	}, false)
+	ln, err := net.Listen("tcp", testClientServerAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	go testServer.Serve(ln)
 }
 
 func TestClient_Get(t *testing.T) {
@@ -161,7 +168,7 @@ func TestClient_Set(t *testing.T) {
 	}
 
 	c.Set(key, value)
-	cv, ok = c.Get(key)
+	_, ok = c.Get(key)
 	if ok {
 		t.Fatalf("Client.Get() failed: Get '%v', want nil", value)
 	}
@@ -176,6 +183,20 @@ func TestClient_Set(t *testing.T) {
 		t.Fatalf("Client.Get() failed: Get '%v', want '%v'", cv, value)
 	}
 
+}
+
+func TestClient_Delete(t *testing.T) {
+	key := "key"
+	value := "value"
+
+	c := &Client{}
+	c.running = true
+	c.Set(key, value)
+	c.Delete(key)
+	cv, ok := c.Get(key)
+	if ok {
+		t.Fatalf("Client.Get() failed: Get '%v', want nil", cv)
+	}
 }
 
 func TestClient_NewMessage(t *testing.T) {
@@ -227,7 +248,8 @@ func TestClient_Call(t *testing.T) {
 	testClientCallMethodString(c, t)
 	testClientCallMethodBytes(c, t)
 	testClientCallMethodStruct(c, t)
-	testClientCallError(c, t)
+	testClientCallError1(c, t)
+	testClientCallError2(c, t)
 	testClientCallDisconnected(c, t)
 
 	SetBatchRecv(true)
@@ -240,17 +262,18 @@ func testClientCallMethodString(c *Client, t *testing.T) {
 		req = "hello"
 		rsp = ""
 	)
-	if err = c.Call(methodCallString, req, &rsp, time.Second, M{}); err != nil {
+	// if err = c.Call(methodCallString, req, &rsp, time.Second, M{}); err != nil {
+	// 	t.Fatalf("Client.Call() error = %v", err)
+	// } else if rsp != req {
+	// 	t.Fatalf("Client.Call() error, returns '%v', want '%v'", rsp, req)
+	// }
+	if err = c.Call(methodCallString, &req, &rsp, time.Second, map[interface{}]interface{}{}); err != nil {
 		t.Fatalf("Client.Call() error = %v", err)
-	} else if rsp != req {
-		t.Fatalf("Client.Call() error, returns '%v', want '%v'", rsp, req)
 	}
-	if err = c.Call(methodCallString, &req, &rsp, -1, map[string]interface{}{}); err != nil {
+	if err = c.Call(methodCallString, nil, &rsp, time.Second, map[interface{}]interface{}{}); err != nil {
 		t.Fatalf("Client.Call() error = %v", err)
-	} else if rsp != req {
-		t.Fatalf("Client.Call() error, returns '%v', want '%v'", rsp, req)
 	}
-	if err = c.Call(methodCallString, &req, nil, -1); err != nil {
+	if err = c.Call(methodCallString, &req, nil, time.Second); err != nil {
 		t.Fatalf("Client.Call() error = %v", err)
 	}
 }
@@ -266,12 +289,12 @@ func testClientCallMethodBytes(c *Client, t *testing.T) {
 	} else if string(rsp) != string(req) {
 		t.Fatalf("Client.Call() error, returns '%v', want '%v'", rsp, req)
 	}
-	if err = c.Call(methodCallBytes, &req, &rsp, -1); err != nil {
+	if err = c.Call(methodCallBytes, &req, &rsp, time.Second); err != nil {
 		t.Fatalf("Client.Call() error = %v", err)
 	} else if string(rsp) != string(req) {
 		t.Fatalf("Client.Call() error, returns '%v', want '%v'", rsp, req)
 	}
-	if err = c.Call(methodCallBytes, &req, nil, -1); err != nil {
+	if err = c.Call(methodCallBytes, &req, nil, time.Second); err != nil {
 		t.Fatalf("Client.Call() error = %v", err)
 	}
 }
@@ -292,7 +315,7 @@ func testClientCallMethodStruct(c *Client, t *testing.T) {
 	}
 }
 
-func testClientCallError(c *Client, t *testing.T) {
+func testClientCallError1(c *Client, t *testing.T) {
 	var (
 		err error
 		req = "my error"
@@ -313,17 +336,48 @@ func testClientCallError(c *Client, t *testing.T) {
 		t.Fatalf("Client.Call() error, returns '%v', want '%v'", err.Error(), ErrClientInvalidTimeoutZero.Error())
 	}
 
-	if err = c.Call(methodCallNotFound, "", nil, -1); err == nil {
+	if err = c.Call(methodCallString, "", nil, -1); err == nil {
+		t.Fatalf("Client.Call() error is nil, want %v", ErrClientInvalidTimeoutLessThanZero)
+	} else if err.Error() != ErrClientInvalidTimeoutLessThanZero.Error() {
+		t.Fatalf("Client.Call() error, returns '%v', want '%v'", err.Error(), ErrClientInvalidTimeoutLessThanZero.Error())
+	}
+
+	if err = c.Call(methodCallNotFound, "", nil, time.Second); err == nil {
 		t.Fatalf("Client.Call() error is nil, want %v", ErrMethodNotFound)
 	} else if err.Error() != ErrMethodNotFound.Error() {
 		t.Fatalf("Client.Call() error, returns '%v', want '%v'", err.Error(), ErrMethodNotFound.Error())
 	}
+}
 
-	if err = c.Call(methodInvalidLong, "", nil, -1); err == nil {
+func testClientCallError2(c *Client, t *testing.T) {
+	var (
+		err error
+		req = "my error"
+	)
+
+	if err = c.Call(methodCallTimeout, "", nil, time.Second/10); err == nil {
+		t.Fatalf("Client.Call() error is nil, want %v", ErrClientTimeout)
+	} else if err.Error() != ErrClientTimeout.Error() {
+		t.Fatalf("Client.Call() error, returns '%v', want '%v'", err.Error(), ErrClientTimeout.Error())
+	}
+
+	for i := 0; i < 10; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second/1000)
+		defer cancel()
+		time.Sleep(time.Second / 100)
+		if err = c.CallWith(ctx, methodCallTimeout, &req, nil); err == nil {
+			t.Fatalf("Client.Call() error is nil, want '%v'", ErrClientTimeout)
+		} else if err.Error() != ErrClientTimeout.Error() {
+			t.Fatalf("Client.Call() error, returns '%v', want '%v'", err.Error(), ErrClientTimeout.Error())
+		}
+	}
+
+	if err = c.Call(methodInvalidLong, "", nil, time.Second); err == nil {
 		t.Fatalf("Client.Call() error is nil, want %v", invalidMethodErrString)
 	} else if err.Error() != invalidMethodErrString {
 		t.Fatalf("Client.Call() error, returns '%v', want '%v'", err.Error(), invalidMethodErrString)
 	}
+
 }
 
 func testClientCallDisconnected(c *Client, t *testing.T) {
@@ -485,6 +539,9 @@ func testClientCallAsyncMethodString(c *Client, t *testing.T) {
 	if err = c.CallAsync(methodCallAsync, &req, nil, time.Second); err != nil {
 		t.Fatalf("Client.CallAsync() error = %v", err)
 	}
+	if err = c.CallAsync(methodCallAsync, req, nil, 0); err != nil {
+		t.Fatalf("Client.CallAsync() error = %v", err)
+	}
 }
 
 func testClientCallAsyncMethodBytes(c *Client, t *testing.T) {
@@ -538,9 +595,9 @@ func testClientCallAsyncError(c *Client, t *testing.T) {
 
 	asyncHandler, _ = getAsyncHandler()
 	if err = c.CallAsync(methodCallAsync, "", asyncHandler, 0); err == nil {
-		t.Fatalf("Client.CallAsync() error is nil, want %v", ErrClientInvalidTimeoutZeroWithNonNilHandler.Error())
-	} else if err.Error() != ErrClientInvalidTimeoutZeroWithNonNilHandler.Error() {
-		t.Fatalf("Client.CallAsync() error, returns '%v', want '%v'", err.Error(), ErrClientInvalidTimeoutZeroWithNonNilHandler.Error())
+		t.Fatalf("Client.CallAsync() error is nil, want %v", ErrClientInvalidTimeoutZeroWithNonNilCallback.Error())
+	} else if err.Error() != ErrClientInvalidTimeoutZeroWithNonNilCallback.Error() {
+		t.Fatalf("Client.CallAsync() error, returns '%v', want '%v'", err.Error(), ErrClientInvalidTimeoutZeroWithNonNilCallback.Error())
 	}
 
 	invalidMethodErrString := fmt.Sprintf("invalid method length: %v, should <= %v", len(methodInvalidLong), MaxMethodLen)
@@ -699,6 +756,12 @@ func testClientNotifyWithMethodString(c *Client, t *testing.T) {
 	if err = c.NotifyWith(context.Background(), methodNotifyWith, &req); err != nil {
 		t.Fatalf("Client.NotifyWith() error = %v", err)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second/1000)
+	time.Sleep(time.Second / 100)
+	defer cancel()
+	if err = c.NotifyWith(ctx, methodNotifyWith, &req); err != nil && err != ErrClientTimeout {
+		t.Fatalf("Client.NotifyWith() error = %v, want: nil or '%v'", err, ErrClientTimeout)
+	}
 }
 
 func testClientNotifyWithMethodBytes(c *Client, t *testing.T) {
@@ -794,6 +857,9 @@ func TestClient_PushMsg(t *testing.T) {
 	} else if err.Error() != ErrClientReconnecting.Error() {
 		t.Fatalf("Client.PushMsg() error, returns '%v', want '%v'", err.Error(), ErrClientReconnecting.Error())
 	}
+	initServer()
+	time.Sleep(time.Second / 5)
+	testServer.Stop()
 }
 
 func TestClientPool(t *testing.T) {
@@ -844,7 +910,13 @@ func testNewClientPoolFromDialers(t *testing.T) {
 	for i := 0; i < poolSize; i++ {
 		dialers[i] = dialer
 	}
-	pool, err := NewClientPoolFromDialers(dialers)
+
+	pool, err := NewClientPoolFromDialers([]DialerFunc{})
+	if err == nil {
+		t.Fatalf("NewClientPoolFromDialers failed, get nil, want '%v'", ErrClientInvalidPoolDialers)
+	}
+
+	pool, err = NewClientPoolFromDialers(dialers)
 	if err != nil {
 		t.Fatalf("NewClientPoolFromDialers failed: %v", err)
 	}

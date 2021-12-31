@@ -1,13 +1,13 @@
-// Copyright 2020 lesismal. All rights reserved.
+// Copyright 2020 wubbalubbaaa. All rights reserved.
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-package arpc
+package easyRpc
 
 import (
 	"testing"
 
-	"github.com/lesismal/arpc/codec"
+	"github.com/wubbalubbaaa/easyRpc/codec"
 )
 
 func TestContext_Get(t *testing.T) {
@@ -60,5 +60,53 @@ func TestContext_Bind(t *testing.T) {
 	}
 	if err := ctx.Bind(nil); err == nil {
 		t.Fatalf("Context.Bind() error = nil, want %v", err)
+	}
+}
+
+func TestContext_Abort(t *testing.T) {
+	ok := false
+	h1 := func(ctx *Context) {
+		ctx.Abort()
+	}
+	h2 := func(ctx *Context) {
+		ok = true
+	}
+	ctx := &Context{handlers: []HandlerFunc{h1, h2}}
+	ctx.Next()
+	if ok {
+		t.Fatalf("Context.Abort() ok != false, have %v", ok)
+	}
+}
+
+func TestContext_Deadline(t *testing.T) {
+	ctx := &Context{}
+	if deadline, ok := ctx.Deadline(); !deadline.IsZero() || ok {
+		t.Fatalf("Context.Deadline() err, have %v, %v", ok, deadline.IsZero())
+	}
+}
+
+func TestContext_Done(t *testing.T) {
+	ctx := &Context{}
+	if done := ctx.Done(); done != nil {
+		t.Fatalf("Context.Bind() done != nil, have %v", done)
+	}
+}
+
+func TestContext_Err(t *testing.T) {
+	ctx := &Context{}
+	ctx.Err()
+	if err := ctx.Err(); err != nil {
+		t.Fatalf("Context.Err() error != nil, have %v", err)
+	}
+}
+
+func TestContext_Value(t *testing.T) {
+	ctx := &Context{}
+	if value := ctx.Value(3); value != nil {
+		t.Fatalf("Context.Value() value != nil, have %v", value)
+	}
+	ctx.Set("key", "value")
+	if value := ctx.Value("key"); value != "value" {
+		t.Fatalf("Context.Value() value != 'value', have %v", value)
 	}
 }

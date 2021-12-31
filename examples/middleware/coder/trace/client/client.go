@@ -5,12 +5,12 @@ import (
 	"net"
 	"time"
 
-	"github.com/lesismal/arpc"
-	"github.com/lesismal/arpc/middleware/coder/tracer"
+	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbeasyRpcaaa/easyRpc/middleware/coder/tracer"
 )
 
 func main() {
-	client, err := arpc.NewClient(func() (net.Conn, error) {
+	client, err := easyRpcRpc.NewClient(func() (net.Conn, error) {
 		return net.DialTimeout("tcp", "localhost:8888", time.Second*3)
 	})
 	if err != nil {

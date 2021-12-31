@@ -1,8 +1,8 @@
-// Copyright 2020 lesismal. All rights reserved.
+// Copyright 2020 wubbalubbaaa. All rights reserved.
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-package arpc
+package easyRpc
 
 import (
 	"context"
@@ -11,12 +11,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lesismal/arpc/codec"
-	"github.com/lesismal/arpc/log"
-	"github.com/lesismal/arpc/util"
+	"github.com/wubbalubbaaa/easyRpc/codec"
+	"github.com/wubbalubbaaa/easyRpc/log"
+	"github.com/wubbalubbaaa/easyRpc/util"
 )
 
-// Server definition
+// Server represents an easyRpc Server.
 type Server struct {
 	Accepted int64
 	CurrLoad int64
@@ -35,7 +35,7 @@ type Server struct {
 	clients map[*Client]util.Empty
 }
 
-// Serve starts rpc service with listener
+// Serve starts service with listener.
 func (s *Server) Serve(ln net.Listener) error {
 	s.Listener = ln
 	s.chStop = make(chan error)
@@ -44,7 +44,7 @@ func (s *Server) Serve(ln net.Listener) error {
 	return s.runLoop()
 }
 
-// Run starts a tcp service on addr
+// Run starts tcp service on addr.
 func (s *Server) Run(addr string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -58,7 +58,7 @@ func (s *Server) Run(addr string) error {
 	return s.runLoop()
 }
 
-// Stop rpc service
+// Stop stops service.
 func (s *Server) Stop() error {
 	defer log.Info("%v %v Stop", s.Handler.LogTag(), s.Listener.Addr())
 	s.running = false
@@ -72,7 +72,7 @@ func (s *Server) Stop() error {
 	return nil
 }
 
-// Shutdown stop rpc service
+// Shutdown shutdown service.
 func (s *Server) Shutdown(ctx context.Context) error {
 	defer log.Info("%v %v Shutdown", s.Handler.LogTag(), s.Listener.Addr())
 	s.running = false
@@ -85,7 +85,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// NewMessage factory
+// NewMessage creates a Message.
 func (s *Server) NewMessage(cmd byte, method string, v interface{}) *Message {
 	return newMessage(cmd, method, v, false, false, atomic.AddUint64(&s.seq, 1), s.Handler, s.Codec, nil)
 }
@@ -162,10 +162,10 @@ func (s *Server) runLoop() error {
 	return err
 }
 
-// NewServer factory
+// NewServer creates an easyRpc Server.
 func NewServer() *Server {
 	h := DefaultHandler.Clone()
-	h.SetLogTag("[ARPC SVR]")
+	h.SetLogTag("[easyRpc SVR]")
 	return &Server{
 		Codec:   codec.DefaultCodec,
 		Handler: h,

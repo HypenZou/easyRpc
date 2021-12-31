@@ -4,17 +4,17 @@ import (
 	"net"
 	"time"
 
-	"github.com/lesismal/arpc"
-	"github.com/lesismal/arpc/log"
-	"github.com/lesismal/arpc/middleware/coder/tracer"
+	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbeasyRpcaaa/easyRpc/log"
+	"github.com/wubbalubbeasyRpcaaa/easyRpc/middleware/coder/tracer"
 )
 
 func main() {
 	go func() {
 		serverTracer2 := tracer.New("appTrace", "span")
-		svr2 := arpc.NewServer()
+		svr2 := easyRpcRpc.NewServer()
 		svr2.Handler.UseCoder(serverTracer2)
-		svr2.Handler.Handle("/step_2", func(ctx *arpc.Context) {
+		svr2.Handler.Handle("/step_2", func(ctx *easyRpcRpc.Context) {
 			req := ""
 			rsp := ""
 			ctx.Bind(&req)
@@ -29,7 +29,7 @@ func main() {
 
 	time.Sleep(time.Second / 10)
 	clientTracer := tracer.New("appTrace", "span")
-	client2, err := arpc.NewClient(func() (net.Conn, error) {
+	client2, err := easyRpcRpc.NewClient(func() (net.Conn, error) {
 		return net.DialTimeout("tcp", "localhost:9999", time.Second*3)
 	})
 	if err != nil {
@@ -39,9 +39,9 @@ func main() {
 	client2.Handler.UseCoder(clientTracer)
 
 	serverTracer1 := tracer.New("appTrace", "span")
-	svr1 := arpc.NewServer()
+	svr1 := easyRpcRpc.NewServer()
 	svr1.Handler.UseCoder(serverTracer1)
-	svr1.Handler.Handle("/step_1", func(ctx *arpc.Context) {
+	svr1.Handler.Handle("/step_1", func(ctx *easyRpcRpc.Context) {
 		sp := tracer.Span(ctx.Values())
 		log.Info("/step_1, traceid: %v, spanid: %v", sp.TraceID(), sp.SpanID())
 

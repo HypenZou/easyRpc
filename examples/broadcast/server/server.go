@@ -24,6 +24,8 @@ func main() {
 			clientMap[ctx.Client] = struct{}{}
 			mux.Unlock()
 
+			ctx.Write(nil)
+
 			log.Printf("enter success")
 		} else {
 			log.Printf("enter failed invalid passwd: %v", passwd)
@@ -45,7 +47,7 @@ func main() {
 		}
 	}()
 
-	server.Run(":8888")
+	server.Run("localhost:8888")
 }
 
 func broadcast(i int) {

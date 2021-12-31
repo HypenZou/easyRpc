@@ -1,4 +1,4 @@
-// Copyright 2020 lesismal. All rights reserved.
+// Copyright 2020 wubbalubbaaa. All rights reserved.
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
@@ -7,9 +7,8 @@ package pubsub
 import (
 	"sync"
 
-	"github.com/lesismal/arpc"
-	"github.com/lesismal/arpc/log"
-	"github.com/lesismal/arpc/util"
+	"github.com/wubbalubbeasyRpcaaa/easyRpc/log"
+	"github.com/wubbalubbeasyRpcaaa/easyRpc/util"
 )
 
 var (
@@ -23,7 +22,7 @@ type clientTopics struct {
 
 // Server .
 type Server struct {
-	*arpc.Server
+	*easyRpcRpc.Server
 
 	Password string
 
@@ -31,7 +30,7 @@ type Server struct {
 
 	topics map[string]*TopicAgent
 
-	clients map[*arpc.Client]map[string]*TopicAgent
+	clients map[*easyRpcRpc.Client]map[string]*TopicAgent
 }
 
 // Publish topic
@@ -62,11 +61,11 @@ func (s *Server) PublishToOne(topicName string, v interface{}) error {
 	return nil
 }
 
-func (s *Server) invalid(ctx *arpc.Context) bool {
+func (s *Server) invalid(ctx *easyRpcRpc.Context) bool {
 	return ctx.Client.UserData == nil
 }
 
-func (s *Server) onAuthenticate(ctx *arpc.Context) {
+func (s *Server) onAuthenticate(ctx *easyRpcRpc.Context) {
 	defer util.Recover()
 
 	passwd := ""
@@ -87,7 +86,7 @@ func (s *Server) onAuthenticate(ctx *arpc.Context) {
 	}
 }
 
-func (s *Server) onSubscribe(ctx *arpc.Context) {
+func (s *Server) onSubscribe(ctx *easyRpcRpc.Context) {
 	defer util.Recover()
 
 	if s.invalid(ctx) {
@@ -124,7 +123,7 @@ func (s *Server) onSubscribe(ctx *arpc.Context) {
 	}
 }
 
-func (s *Server) onUnsubscribe(ctx *arpc.Context) {
+func (s *Server) onUnsubscribe(ctx *easyRpcRpc.Context) {
 	defer util.Recover()
 
 	if s.invalid(ctx) {
@@ -159,7 +158,7 @@ func (s *Server) onUnsubscribe(ctx *arpc.Context) {
 	}
 }
 
-func (s *Server) onPublish(ctx *arpc.Context) {
+func (s *Server) onPublish(ctx *easyRpcRpc.Context) {
 	defer util.Recover()
 
 	if s.invalid(ctx) {
@@ -186,7 +185,7 @@ func (s *Server) onPublish(ctx *arpc.Context) {
 	}
 }
 
-func (s *Server) onPublishToOne(ctx *arpc.Context) {
+func (s *Server) onPublishToOne(ctx *easyRpcRpc.Context) {
 	defer util.Recover()
 
 	if s.invalid(ctx) {
@@ -236,13 +235,13 @@ func (s *Server) getOrMakeTopic(topic string) *TopicAgent {
 }
 
 // addClient .
-func (s *Server) addClient(c *arpc.Client) {
+func (s *Server) addClient(c *easyRpcRpc.Client) {
 	c.UserData = &clientTopics{
 		topicAgents: map[string]*TopicAgent{},
 	}
 }
 
-func (s *Server) deleteClient(c *arpc.Client) {
+func (s *Server) deleteClient(c *easyRpcRpc.Client) {
 	if c.UserData == nil {
 		return
 	}
@@ -260,11 +259,11 @@ func (s *Server) deleteClient(c *arpc.Client) {
 
 // NewServer .
 func NewServer() *Server {
-	s := arpc.NewServer()
+	s := easyRpcRpc.NewServer()
 	svr := &Server{
 		Server:  s,
 		topics:  map[string]*TopicAgent{},
-		clients: map[*arpc.Client]map[string]*TopicAgent{},
+		clients: map[*easyRpcRpc.Client]map[string]*TopicAgent{},
 	}
 	s.Handler.SetLogTag("[APS SVR]")
 	svr.Handler.Handle(routeAuthenticate, svr.onAuthenticate)

@@ -1,52 +1,46 @@
-// Copyright 2020 lesismal. All rights reserved.
+// Copyright 2020 wubbalubbaaa. All rights reserved.
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
 package util
 
 import (
-	// "fmt"
-	// "runtime"
 	"runtime/debug"
 	"unsafe"
 
-	acodec "github.com/lesismal/arpc/codec"
-	"github.com/lesismal/arpc/log"
-)
-
-const (
-	separator = "---------------------------------------\n"
+	acodec "github.com/wubbalubbaaa/easyRpc/codec"
+	"github.com/wubbalubbaaa/easyRpc/log"
 )
 
 // Empty struct
 type Empty struct{}
 
-// Recover recover panic and log stacks's info
+// Recover handles panic and logs stack info
 func Recover() {
 	if err := recover(); err != nil {
-		log.Error("%sruntime error: %v\ntraceback:\n%v\n%v", separator, err, string(debug.Stack()), separator)
+		log.Error("runtime error: %v\ntraceback:\n%v\n", err, string(debug.Stack()))
 	}
 }
 
-// Safe wrap a func with panic recover
+// Safe wraps a function-calling with panic recovery
 func Safe(call func()) {
 	defer Recover()
 	call()
 }
 
-// StrToBytes hack string to []byte
+// StrToBytes hacks string to []byte
 func StrToBytes(s string) []byte {
 	x := (*[2]uintptr)(unsafe.Pointer(&s))
 	h := [3]uintptr{x[0], x[1], x[1]}
 	return *(*[]byte)(unsafe.Pointer(&h))
 }
 
-// BytesToStr hack []byte to string
+// BytesToStr hacks []byte to string
 func BytesToStr(b []byte) string {
 	return *(*string)(unsafe.Pointer(&b))
 }
 
-// ValueToBytes convert values to []byte
+// ValueToBytes converts values to []byte
 func ValueToBytes(codec acodec.Codec, v interface{}) []byte {
 	if v == nil {
 		return nil

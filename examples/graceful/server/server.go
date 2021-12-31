@@ -9,19 +9,19 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lesismal/arpc"
-	"github.com/lesismal/arpc/middleware/router"
+	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbaaa/easyRpc/extension/middleware/router"
 )
 
 func main() {
-	server := arpc.NewServer()
+	server := easyRpc.NewServer()
 
 	graceful := &router.Graceful{}
 
 	// step 1: register graceful middleware
 	server.Handler.Use(graceful.Handler())
 
-	server.Handler.Handle("/echo", func(ctx *arpc.Context) {
+	server.Handler.Handle("/echo", func(ctx *easyRpc.Context) {
 		// delay 5s for you to shutdown server by `ctrl + c`
 		time.Sleep(time.Second * 5)
 		str := ""
@@ -30,7 +30,7 @@ func main() {
 		log.Printf("/echo: \"%v\", error: %v", str, err)
 	}, true)
 
-	go server.Run(":8888")
+	go server.Run("localhost:8888")
 
 	quit := make(chan os.Signal)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -39,6 +39,6 @@ func main() {
 	// step 2: shutdown by graceful middleware
 	graceful.Shutdown()
 
-	// step 3: shutdown arpc server
+	// step 3: shutdown easyRpc server
 	server.Shutdown(context.Background())
 }

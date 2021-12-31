@@ -8,9 +8,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lesismal/arpc"
-	"github.com/lesismal/arpc/log"
-	"github.com/lesismal/arpcext/websocket"
+	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbaaa/easyRpc/extension/protocol/websocket"
+	"github.com/wubbalubbaaa/easyRpc/log"
 )
 
 // Message .
@@ -31,20 +31,20 @@ func NewMessage(user uint64, msg string) *Message {
 
 // Room .
 type Room struct {
-	users       map[*arpc.Client]uint64
-	chEnterRoom chan *arpc.Client
-	chLeaveRoom chan *arpc.Client
+	users       map[*easyRpc.Client]uint64
+	chEnterRoom chan *easyRpc.Client
+	chLeaveRoom chan *easyRpc.Client
 	chBroadcast chan *Message
 	chStop      chan struct{}
 }
 
 // Enter .
-func (room *Room) Enter(cli *arpc.Client) {
+func (room *Room) Enter(cli *easyRpc.Client) {
 	room.chEnterRoom <- cli
 }
 
 // Leave .
-func (room *Room) Leave(cli *arpc.Client) {
+func (room *Room) Leave(cli *easyRpc.Client) {
 	room.chLeaveRoom <- cli
 }
 
@@ -60,7 +60,7 @@ func (room *Room) Run() *Room {
 			select {
 			case cli := <-room.chEnterRoom:
 				room.users[cli] = userCnt
-				cli.UserData = userCnt
+				cli.Set("user", userCnt)
 				userid := fmt.Sprintf("%v", userCnt)
 				cli.Notify("/chat/server/userid", userid, 0)
 				room.broadcastMsg("/chat/server/userenter", NewMessage(userCnt, ""))
@@ -68,9 +68,14 @@ func (room *Room) Run() *Room {
 				log.Info("[user_%v] enter room", userid)
 			case cli := <-room.chLeaveRoom:
 				delete(room.users, cli)
-				userid, _ := cli.UserData.(uint64)
-				room.broadcastMsg("/chat/server/userleave", NewMessage(userid, ""))
-				log.Info("[user_%v] leave room", userid)
+				user, ok := cli.Get("user")
+				if ok {
+					userid, ok := user.(uint64)
+					if ok {
+						room.broadcastMsg("/chat/server/userleave", NewMessage(userid, ""))
+						log.Info("[user_%v] leave room", userid)
+					}
+				}
 			case msg := <-room.chBroadcast:
 				room.broadcastMsg("/chat/server/broadcast", msg)
 			case <-room.chStop:
@@ -97,54 +102,55 @@ func (room *Room) broadcastMsg(method string, msg *Message) {
 // NewRoom .
 func NewRoom() *Room {
 	return &Room{
-		users:       map[*arpc.Client]uint64{},
-		chEnterRoom: make(chan *arpc.Client, 1024),
-		chLeaveRoom: make(chan *arpc.Client, 1024),
+		users:       map[*easyRpc.Client]uint64{},
+		chEnterRoom: make(chan *easyRpc.Client, 1024),
+		chLeaveRoom: make(chan *easyRpc.Client, 1024),
 		chBroadcast: make(chan *Message, 1024),
 		chStop:      make(chan struct{}),
 	}
 }
 
 // NewServer .
-func NewServer(room *Room) *arpc.Server {
-	ln, _ := websocket.Listen(":8888", nil)
+func NewServer(room *Room) *easyRpc.Server {
+	ln, _ := websocket.Listen("localhost:8888", nil)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Info("url: %v", r.URL.String())
 		if r.URL.Path == "/" {
 			http.ServeFile(w, r, "chat.html")
-		} else if r.URL.Path == "/arpc.js" {
-			http.ServeFile(w, r, "arpc.js")
+		} else if r.URL.Path == "/easyRpc.js" {
+			http.ServeFile(w, r, "easyRpc.js")
 		} else {
 			http.NotFound(w, r)
 		}
 	})
 	http.HandleFunc("/ws", ln.(*websocket.Listener).Handler)
 	go func() {
-		err := http.ListenAndServe(":8888", nil)
+		err := http.ListenAndServe("localhost:8888", nil)
 		if err != nil {
 			log.Error("ListenAndServe: ", err)
 			panic(err)
 		}
 	}()
 
-	svr := arpc.NewServer()
+	svr := easyRpc.NewServer()
 
-	svr.Handler.Handle("/chat/user/say", func(ctx *arpc.Context) {
-		if ctx.Client.UserData != nil {
-			userid, _ := ctx.Client.UserData.(uint64)
-			msg := &Message{User: userid}
-			err := ctx.Bind(&msg.Message)
-			if err == nil {
-				room.Broadcast(msg)
+	svr.Handler.Handle("/chat/user/say", func(ctx *easyRpc.Context) {
+		if user, ok := ctx.Client.Get("user"); ok {
+			if userid, ok := user.(uint64); ok {
+				msg := &Message{User: userid}
+				err := ctx.Bind(&msg.Message)
+				if err == nil {
+					room.Broadcast(msg)
+				}
 			}
 		}
 	})
 
-	svr.Handler.HandleConnected(func(c *arpc.Client) {
+	svr.Handler.HandleConnected(func(c *easyRpc.Client) {
 		room.Enter(c)
 	})
 
-	svr.Handler.HandleDisconnected(func(c *arpc.Client) {
+	svr.Handler.HandleDisconnected(func(c *easyRpc.Client) {
 		room.Leave(c)
 	})
 
@@ -162,6 +168,7 @@ func main() {
 	<-quit
 
 	room.Stop()
+	time.Sleep(time.Second / 10)
 	server.Stop()
 
 	log.Info("server exit")

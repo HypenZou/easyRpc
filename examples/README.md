@@ -13,8 +13,8 @@ go run github.com/wubbalubbaaa/easyRpc/examples/micro/client
 go run github.com/wubbalubbaaa/easyRpc/examples/middleware/coder/gzip/server
 go run github.com/wubbalubbaaa/easyRpc/examples/middleware/coder/gzip/client
 
-go run github.com/wubbalubbaaa/easyRpc/examples/middleware/coder/trace/server
-go run github.com/wubbalubbaaa/easyRpc/examples/middleware/coder/trace/client
+go run github.com/wubbalubbaaa/easyRpc/examples/middleware/coder/tracing/server
+go run github.com/wubbalubbaaa/easyRpc/examples/middleware/coder/tracing/client
 
 go run github.com/wubbalubbaaa/easyRpc/examples/middleware/router/server
 go run github.com/wubbalubbaaa/easyRpc/examples/middleware/router/client
@@ -30,6 +30,9 @@ go run github.com/wubbalubbaaa/easyRpc/examples/protocols/kcp/client
 
 go run github.com/wubbalubbaaa/easyRpc/examples/protocols/quic/server
 go run github.com/wubbalubbaaa/easyRpc/examples/protocols/quic/client
+
+go run github.com/wubbalubbaaa/easyRpc/examples/protocols/tls/server
+go run github.com/wubbalubbaaa/easyRpc/examples/protocols/tls/client
 
 go run github.com/wubbalubbaaa/easyRpc/examples/protocols/unixsocket/server
 go run github.com/wubbalubbaaa/easyRpc/examples/protocols/unixsocket/client

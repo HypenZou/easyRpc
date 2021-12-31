@@ -6,11 +6,11 @@ import (
 
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/clientv3/concurrency"
-	"github.com/lesismal/arpc/log"
-	"github.com/lesismal/arpc/util"
+	"github.com/wubbalubbaaa/easyRpc/log"
+	"github.com/wubbalubbeasyRpcaaa/easyRpc/util"
 )
 
-const RegisterMutexPrefix = "_arpc_micro_reg_mux_pfx"
+const RegisterMutexPrefix = "_easyRpcRpc_micro_reg_mux_pfx"
 
 //Register .
 type Register struct {

@@ -1,4 +1,4 @@
-// Copyright 2020 lesismal. All rights reserved.
+// Copyright 2020 wubbalubbaaa. All rights reserved.
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
@@ -9,14 +9,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lesismal/arpc"
-	"github.com/lesismal/arpc/log"
-	"github.com/lesismal/arpc/util"
+	"github.com/wubbalubbeasyRpcaaa/easyRpc/log"
+	"github.com/wubbalubbeasyRpcaaa/easyRpc/util"
 )
 
 // Client .
 type Client struct {
-	*arpc.Client
+	*easyRpcRpc.Client
 
 	Password string
 
@@ -164,7 +163,7 @@ func (c *Client) initTopics() {
 	c.psmux.RUnlock()
 }
 
-func (c *Client) onPublish(ctx *arpc.Context) {
+func (c *Client) onPublish(ctx *easyRpcRpc.Context) {
 	defer util.Recover()
 
 	topic := &Topic{}
@@ -194,7 +193,7 @@ func (c *Client) onPublish(ctx *arpc.Context) {
 
 // NewClient .
 func NewClient(dialer func() (net.Conn, error)) (*Client, error) {
-	c, err := arpc.NewClient(dialer)
+	c, err := easyRpcRpc.NewClient(dialer)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +204,7 @@ func NewClient(dialer func() (net.Conn, error)) (*Client, error) {
 	}
 	cli.Handler = cli.Handler.Clone()
 	cli.Handler.Handle(routePublish, cli.onPublish)
-	cli.Handler.HandleConnected(func(c *arpc.Client) {
+	cli.Handler.HandleConnected(func(c *easyRpcRpc.Client) {
 		if cli.Authenticate() == nil {
 			cli.initTopics()
 		}

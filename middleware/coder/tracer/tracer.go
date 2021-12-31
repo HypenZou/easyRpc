@@ -7,9 +7,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lesismal/arpc"
-	"github.com/lesismal/arpc/middleware/coder"
-	"github.com/lesismal/arpc/util"
+	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbeasyRpcaaa/easyRpc/middleware/coder"
+	"github.com/wubbalubbeasyRpcaaa/easyRpc/util"
 )
 
 const (
@@ -44,7 +44,7 @@ func (sp Span) SpanID() string {
 	return spanID
 }
 
-func (sp Span) pack(msg *arpc.Message) {
+func (sp Span) pack(msg *easyRpcRpc.Message) {
 	traceID := ""
 	spanID := ""
 	iTraceId, _ := sp[TraceIdKey]
@@ -70,7 +70,7 @@ func (sp Span) pack(msg *arpc.Message) {
 	msg.SetBodyLen(len(msg.Buffer) - 16)
 }
 
-func (sp Span) unpack(msg *arpc.Message) {
+func (sp Span) unpack(msg *easyRpcRpc.Message) {
 	if msg.IsFlagBitSet(coder.FlagBitTracer) {
 		bufLen := len(msg.Buffer)
 		if bufLen > 2 {
@@ -102,14 +102,14 @@ type Tracer struct {
 	spanCount   uint64
 }
 
-func (tracer *Tracer) Encode(client *arpc.Client, msg *arpc.Message) *arpc.Message {
+func (tracer *Tracer) Encode(client *easyRpcRpc.Client, mseasyRpcasyRpc.MesseasyRpc *easyRpc.Message {
 	sp := Span(msg.Values())
 	sp.pack(msg)
 
 	return msg
 }
 
-func (tracer *Tracer) Decode(client *arpc.Client, msg *arpc.Message) *arpc.Message {
+func (tracer *Tracer) Decode(client *easyRpcRpc.Client, mseasyRpcasyRpc.MesseasyRpc *easyRpc.Message {
 	sp := Span(msg.Values())
 	sp.unpack(msg)
 	return msg

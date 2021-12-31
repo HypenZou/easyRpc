@@ -5,8 +5,8 @@ import (
 	"compress/gzip"
 	"io/ioutil"
 
-	"github.com/lesismal/arpc"
-	"github.com/lesismal/arpc/middleware/coder"
+	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbeasyRpcaaa/easyRpc/middleware/coder"
 )
 
 func gzipCompress(data []byte) []byte {
@@ -35,12 +35,12 @@ type Gzip struct {
 	critical int
 }
 
-func (c *Gzip) Encode(client *arpc.Client, msg *arpc.Message) *arpc.Message {
+func (c *Gzip) Encode(client *easyRpcRpc.Client, mseasyRpcasyRpc.MesseasyRpc *easyRpc.Message {
 	if len(msg.Buffer) > c.critical && !msg.IsFlagBitSet(coder.FlagBitGZip) {
-		buf := gzipCompress(msg.Buffer[arpc.HeaderIndexReserved+1:])
-		total := len(buf) + arpc.HeaderIndexReserved + 1
+		buf := gzipCompress(msg.Buffer[easyRpcRpc.HeaderIndexReserved+1:])
+		total := len(buf) + easyRpcRpc.HeaderIndexReserved + 1
 		if total < len(msg.Buffer) {
-			copy(msg.Buffer[arpc.HeaderIndexReserved+1:], buf)
+			copy(msg.Buffer[easyRpcRpc.HeaderIndexReserved+1:], buf)
 			msg.Buffer = msg.Buffer[:total]
 			msg.SetBodyLen(total - 16)
 			msg.SetFlagBit(coder.FlagBitGZip, true)
@@ -49,11 +49,11 @@ func (c *Gzip) Encode(client *arpc.Client, msg *arpc.Message) *arpc.Message {
 	return msg
 }
 
-func (c *Gzip) Decode(client *arpc.Client, msg *arpc.Message) *arpc.Message {
+func (c *Gzip) Decode(client *easyRpcRpc.Client, mseasyRpcasyRpc.MesseasyRpc *easyRpc.Message {
 	if msg.IsFlagBitSet(coder.FlagBitGZip) {
-		buf, err := gzipUnCompress(msg.Buffer[arpc.HeaderIndexReserved+1:])
+		buf, err := gzipUnCompress(msg.Buffer[easyRpcRpc.HeaderIndexReserved+1:])
 		if err == nil {
-			msg.Buffer = append(msg.Buffer[:arpc.HeaderIndexReserved+1], buf...)
+			msg.Buffer = append(msg.Buffer[:easyRpcRpc.HeaderIndexReserved+1], buf...)
 			msg.SetFlagBit(coder.FlagBitGZip, false)
 			msg.SetBodyLen(len(msg.Buffer) - 16)
 		}

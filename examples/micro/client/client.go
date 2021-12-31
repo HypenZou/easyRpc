@@ -4,9 +4,9 @@ import (
 	"net"
 	"time"
 
-	"github.com/lesismal/arpc/log"
-	"github.com/lesismal/arpc/micro"
-	"github.com/lesismal/arpc/micro/etcd"
+	"github.com/wubbalubbaaa/easyRpc/extension/micro"
+	"github.com/wubbalubbaaa/easyRpc/extension/micro/etcd"
+	"github.com/wubbalubbaaa/easyRpc/log"
 )
 
 func dialer(addr string) (net.Conn, error) {

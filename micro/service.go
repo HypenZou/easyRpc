@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lesismal/arpc"
-	"github.com/lesismal/arpc/log"
-	"github.com/lesismal/arpc/util"
+	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbeasyRpcaaa/easyRpc/log"
+	"github.com/wubbalubbeasyRpcaaa/easyRpc/util"
 )
 
 var (
@@ -24,13 +24,13 @@ var (
 type ServiceManager interface {
 	AddServiceNodes(path string, value string)
 	DeleteServiceNodes(path string)
-	ClientBy(serviceName string) (*arpc.Client, error)
+	ClientBy(serviceName string) (*easyRpcRpc.Client, error)
 }
 
 type ServiceNode struct {
 	name     string
 	addr     string
-	client   *arpc.Client
+	client   *easyRpcRpc.Client
 	shutdown bool
 }
 
@@ -84,7 +84,7 @@ func (list *serviceNodeList) delete(addr string) {
 	}
 }
 
-func (list *serviceNodeList) next() (*arpc.Client, error) {
+func (list *serviceNodeList) next() (*easyRpcRpc.Client, error) {
 	list.mux.RLock()
 	defer list.mux.RUnlock()
 	l := len(list.nodes)
@@ -148,7 +148,7 @@ func (s *serviceManager) AddServiceNodes(path string, value string) {
 		nodes[i] = &ServiceNode{name: name, addr: addr}
 	}
 
-	client, err := arpc.NewClient(func() (net.Conn, error) {
+	client, err := easyRpcRpc.NewClient(func() (net.Conn, error) {
 		return s.dialer(addr)
 	})
 	for i := 0; i < weight; i++ {
@@ -166,7 +166,7 @@ func (s *serviceManager) AddServiceNodes(path string, value string) {
 				i++
 				time.Sleep(time.Second)
 				log.Info("AddServiceNodes: [%v, %v, %v, %v] retrying %v...", app, name, addr, weight, i)
-				client, err := arpc.NewClient(func() (net.Conn, error) {
+				client, err := easyRpcRpc.NewClient(func() (net.Conn, error) {
 					return s.dialer(addr)
 				})
 				if err == nil {
@@ -201,7 +201,7 @@ func (s *serviceManager) DeleteServiceNodes(path string) {
 }
 
 // Client returns a reachable client by service's name
-func (s *serviceManager) ClientBy(serviceName string) (*arpc.Client, error) {
+func (s *serviceManager) ClientBy(serviceName string) (*easyRpcRpc.Client, error) {
 	s.mux.RLock()
 	defer s.mux.RUnlock()
 	list, ok := s.serviceList[serviceName]

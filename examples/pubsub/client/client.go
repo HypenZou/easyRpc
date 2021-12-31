@@ -5,8 +5,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/lesismal/arpc/log"
-	"github.com/lesismal/arpc/pubsub"
+	"github.com/wubbalubbaaa/easyRpc/extension/pubsub"
+	"github.com/wubbalubbaaa/easyRpc/log"
 )
 
 var (

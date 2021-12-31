@@ -9,19 +9,19 @@ import (
 	"log"
 	"math/big"
 
-	"github.com/lesismal/arpc"
-	"github.com/lesismal/arpcext/quic"
+	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbaaa/easyRpc/extension/protocol/quic"
 )
 
 func main() {
-	ln, err := quic.Listen(":8888", generateTLSConfig())
+	ln, err := quic.Listen("localhost:8888", generateTLSConfig())
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
-	svr := arpc.NewServer()
+	svr := easyRpc.NewServer()
 
 	// register router
-	svr.Handler.Handle("/echo", func(ctx *arpc.Context) {
+	svr.Handler.Handle("/echo", func(ctx *easyRpc.Context) {
 		str := ""
 		err := ctx.Bind(&str)
 		ctx.Write(str)

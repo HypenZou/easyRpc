@@ -5,10 +5,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
-	"github.com/lesismal/arpc"
-	"github.com/lesismal/arpc/log"
-	"github.com/lesismal/arpc/micro/etcd"
+	"github.com/wubbalubbaaa/easyRpc"
+	"github.com/wubbalubbaaa/easyRpc/extension/micro/etcd"
+	"github.com/wubbalubbaaa/easyRpc/log"
 )
 
 func main() {
@@ -22,18 +23,23 @@ func main() {
 		endpoints = []string{"localhost:2379", "localhost:22379", "localhost:32379"}
 	)
 
-	svr := arpc.NewServer()
+	svr := easyRpc.NewServer()
 	// register router
-	svr.Handler.Handle("/echo", func(ctx *arpc.Context) {
+	svr.Handler.Handle("/echo", func(ctx *easyRpc.Context) {
 		str := ""
 		err := ctx.Bind(&str)
 		ret := fmt.Sprintf("%v_from_%v", str, addr)
 		ctx.Write(ret)
 		log.Info("/echo: \"%v\", error: %v", ret, err)
 	})
-	go svr.Run(addr)
+	go func() {
+		err := svr.Run(addr)
+		log.Error("server exit: %v", err)
+		os.Exit(0)
+	}()
 
-	key := fmt.Sprintf("%v/%v/%v", appPrefix, service, addr)
+	time.Sleep(time.Second / 2)
+	key := fmt.Sprintf("%v/%v/%v/%v", appPrefix, service, addr, time.Now().UnixNano())
 	value := fmt.Sprintf("%v", weight)
 	register, err := etcd.NewRegister(endpoints, key, value, ttl)
 	if err != nil {
